@@ -327,8 +327,18 @@
     let droneOsc = null, droneGain = null;
 
     function initAudio() {
-        if (audioCtx) return;
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        // iOS requires explicit resume during a user gesture
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+
+        // Unlock speechSynthesis on iOS by speaking a silent utterance during gesture
+        if (window.speechSynthesis) {
+            const unlock = new SpeechSynthesisUtterance('');
+            unlock.volume = 0;
+            speechSynthesis.speak(unlock);
+        }
     }
 
     function startDrone() {
@@ -354,13 +364,12 @@
         const u = new SpeechSynthesisUtterance(text);
         u.rate = 0.72; u.pitch = 0.8; u.volume = 1.0;
         speechSynthesis.speak(u);
-        // Mystical echo
-        setTimeout(() => {
-            if (!window.speechSynthesis) return;
+        // Mystical echo via onend (setTimeout breaks iOS gesture chain)
+        u.onend = () => {
             const echo = new SpeechSynthesisUtterance(text);
             echo.rate = 0.6; echo.pitch = 0.65; echo.volume = 0.4;
             speechSynthesis.speak(echo);
-        }, 350);
+        };
     }
 
     function playShimmer() {
@@ -642,11 +651,10 @@
         const rd = rounds[currentRound];
         rd.options.forEach((opt, i) => orbs.push(createOrb(opt.letter, ORB_COLORS[i], i)));
 
-        // Speak the phoneme + shimmer
-        setTimeout(() => {
-            speakPhoneme(rd.target.voice);
-            playShimmer();
-        }, 400);
+        // Speak immediately (iOS needs this within the user gesture chain)
+        speakPhoneme(rd.target.voice);
+        // Shimmer can be delayed safely (Web Audio stays unlocked once resumed)
+        setTimeout(() => playShimmer(), 400);
 
         // Show hint on first round of first game
         if (currentRound === 0 && firstGame) {
@@ -766,6 +774,8 @@
 
     function onPointerDown(e) {
         e.preventDefault();
+        // Keep AudioContext alive on iOS (can re-suspend between gestures)
+        if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
         if (state === 'title')   { startGame(); return; }
         if (state === 'results') { startGame(); return; }
         if (state !== 'playing') return;
