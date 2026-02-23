@@ -84,13 +84,31 @@
             transition: width 0.1s linear;
         }
 
-        /* Hint */
-        #hint {
+        /* Phoneme display — shows during intro, fades for gameplay */
+        #phoneme-display {
             position: fixed;
-            top: 15%;
+            top: 16%;
             left: 0; right: 0;
             text-align: center;
-            font-size: clamp(18px, 4.5vw, 28px);
+            font-family: 'Cinzel Decorative', 'Cinzel', serif;
+            font-size: clamp(32px, 8vw, 52px);
+            letter-spacing: 5px;
+            color: #ccaaff;
+            text-shadow: 0 0 25px rgba(136,68,255,0.8), 0 0 50px rgba(136,68,255,0.35);
+            z-index: 10;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.4s ease;
+        }
+        #phoneme-display.show { opacity: 1; }
+
+        /* Hint — first round only */
+        #hint {
+            position: fixed;
+            top: 24%;
+            left: 0; right: 0;
+            text-align: center;
+            font-size: clamp(14px, 3.5vw, 20px);
             letter-spacing: 6px;
             z-index: 10;
             pointer-events: none;
@@ -138,6 +156,7 @@
 <body>
 
     <div id="timer-wrap"><div id="timer-fill"></div></div>
+    <div id="phoneme-display"></div>
     <div id="hint">Listen...</div>
 
     <div id="title-screen" class="overlay active">
@@ -325,6 +344,7 @@
     // ---------- AUDIO ----------
     let audioCtx = null;
     let droneOsc = null, droneGain = null;
+    let noiseBuffer = null;
 
     function initAudio() {
         if (!audioCtx) {
@@ -333,11 +353,26 @@
         // iOS requires explicit resume during a user gesture
         if (audioCtx.state === 'suspended') audioCtx.resume();
 
-        // Unlock speechSynthesis on iOS by speaking a silent utterance during gesture
-        if (window.speechSynthesis) {
-            const unlock = new SpeechSynthesisUtterance('');
-            unlock.volume = 0;
-            speechSynthesis.speak(unlock);
+        // iOS silent-mode bypass: playing an <audio> element during a gesture
+        // switches the audio session to "playback" so sound works even when
+        // the mute switch is on.
+        if (!initAudio._unlocked) {
+            initAudio._unlocked = true;
+            try {
+                const a = new Audio();
+                a.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+                a.volume = 0.01;
+                a.play().catch(() => {});
+            } catch(e) {}
+        }
+
+        // Pre-create noise buffer for phoneme synthesis
+        if (!noiseBuffer) {
+            const sr = audioCtx.sampleRate;
+            const len = sr * 2;
+            noiseBuffer = audioCtx.createBuffer(1, len, sr);
+            const data = noiseBuffer.getChannelData(0);
+            for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
         }
     }
 
@@ -358,18 +393,136 @@
         droneGain.gain.linearRampToValueAtTime(0.06, audioCtx.currentTime + 2);
     }
 
-    function speakPhoneme(text) {
-        if (!window.speechSynthesis) return;
-        speechSynthesis.cancel();
-        const u = new SpeechSynthesisUtterance(text);
-        u.rate = 0.72; u.pitch = 0.8; u.volume = 1.0;
-        speechSynthesis.speak(u);
-        // Mystical echo via onend (setTimeout breaks iOS gesture chain)
-        u.onend = () => {
-            const echo = new SpeechSynthesisUtterance(text);
-            echo.rate = 0.6; echo.pitch = 0.65; echo.volume = 0.4;
-            speechSynthesis.speak(echo);
-        };
+    // --- Phoneme synthesizer (Web Audio API — works on all platforms) ---
+    // Each phoneme gets a distinct sound built from oscillators + filtered noise.
+
+    function playNoise(lowFreq, highFreq, duration, vol) {
+        if (!audioCtx || !noiseBuffer) return;
+        const src = audioCtx.createBufferSource();
+        src.buffer = noiseBuffer;
+        const bp = audioCtx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.value = (lowFreq + highFreq) / 2;
+        bp.Q.value = 0.8;
+        const g = audioCtx.createGain();
+        src.connect(bp); bp.connect(g); g.connect(audioCtx.destination);
+        const t = audioCtx.currentTime;
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(vol, t + 0.02);
+        g.gain.setValueAtTime(vol, t + duration - 0.04);
+        g.gain.linearRampToValueAtTime(0, t + duration);
+        src.start(t); src.stop(t + duration);
+    }
+
+    function playClick(freq, duration) {
+        if (!audioCtx || !noiseBuffer) return;
+        const src = audioCtx.createBufferSource();
+        src.buffer = noiseBuffer;
+        const bp = audioCtx.createBiquadFilter();
+        bp.type = 'bandpass'; bp.frequency.value = freq; bp.Q.value = 2.5;
+        const g = audioCtx.createGain();
+        src.connect(bp); bp.connect(g); g.connect(audioCtx.destination);
+        const t = audioCtx.currentTime;
+        g.gain.setValueAtTime(0.25, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + duration);
+        src.start(t); src.stop(t + duration + 0.01);
+    }
+
+    function playVoicedStop(freq, duration) {
+        if (!audioCtx) return;
+        playClick(freq * 3, 0.04);
+        const osc = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        osc.type = 'sawtooth'; osc.frequency.value = freq;
+        osc.connect(g); g.connect(audioCtx.destination);
+        const t = audioCtx.currentTime;
+        g.gain.setValueAtTime(0, t + 0.025);
+        g.gain.linearRampToValueAtTime(0.1, t + 0.05);
+        g.gain.exponentialRampToValueAtTime(0.001, t + duration);
+        osc.start(t + 0.025); osc.stop(t + duration);
+    }
+
+    function playHum(freq, duration) {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        osc.type = 'sine'; osc.frequency.value = freq;
+        const lfo = audioCtx.createOscillator();
+        const lfoG = audioCtx.createGain();
+        lfo.frequency.value = 5; lfoG.gain.value = 3;
+        lfo.connect(lfoG); lfoG.connect(osc.frequency);
+        osc.connect(g); g.connect(audioCtx.destination);
+        const t = audioCtx.currentTime;
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(0.13, t + 0.04);
+        g.gain.setValueAtTime(0.13, t + duration - 0.06);
+        g.gain.linearRampToValueAtTime(0, t + duration);
+        osc.start(t); osc.stop(t + duration);
+        lfo.start(t); lfo.stop(t + duration);
+    }
+
+    function playGlide(startF, endF, duration) {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.connect(g); g.connect(audioCtx.destination);
+        const t = audioCtx.currentTime;
+        osc.frequency.setValueAtTime(startF, t);
+        osc.frequency.linearRampToValueAtTime(endF, t + duration * 0.5);
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(0.11, t + 0.04);
+        g.gain.setValueAtTime(0.11, t + duration - 0.05);
+        g.gain.linearRampToValueAtTime(0, t + duration);
+        osc.start(t); osc.stop(t + duration);
+    }
+
+    function playTrill(freq, duration) {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        osc.type = 'sine'; osc.frequency.value = freq;
+        const lfo = audioCtx.createOscillator();
+        const lfoG = audioCtx.createGain();
+        lfo.frequency.value = 22; lfoG.gain.value = 18;
+        lfo.connect(lfoG); lfoG.connect(osc.frequency);
+        osc.connect(g); g.connect(audioCtx.destination);
+        const t = audioCtx.currentTime;
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(0.11, t + 0.04);
+        g.gain.setValueAtTime(0.11, t + duration - 0.05);
+        g.gain.linearRampToValueAtTime(0, t + duration);
+        osc.start(t); osc.stop(t + duration);
+        lfo.start(t); lfo.stop(t + duration);
+    }
+
+    function synthPhoneme(letter) {
+        if (!audioCtx) return;
+        switch (letter) {
+            case 's': playNoise(5000, 9000, 0.38, 0.16); break;   // high hiss
+            case 'f': playNoise(1500, 4000, 0.38, 0.13); break;   // lower hiss
+            case 't': playClick(4000, 0.07); break;                // sharp high click
+            case 'k': playClick(1800, 0.09); break;                // mid click
+            case 'p': playClick(700, 0.07); break;                 // soft low click
+            case 'b': playVoicedStop(130, 0.18); break;            // pop + low buzz
+            case 'd': playVoicedStop(230, 0.15); break;            // pop + mid buzz
+            case 'g': playVoicedStop(170, 0.18); break;            // pop + low-mid buzz
+            case 'm': playHum(150, 0.45); break;                   // low gentle hum
+            case 'n': playHum(240, 0.4); break;                    // higher gentle hum
+            case 'l': playGlide(300, 420, 0.35); break;            // rising tone
+            case 'r': playTrill(270, 0.4); break;                  // wavering tone
+        }
+    }
+
+    // Also try speechSynthesis as a bonus layer (works on desktop, unreliable on iOS)
+    function trySpeechSynthesis(text) {
+        try {
+            if (!window.speechSynthesis) return;
+            speechSynthesis.cancel();
+            const u = new SpeechSynthesisUtterance(text);
+            u.rate = 0.72; u.pitch = 0.8; u.volume = 1.0;
+            speechSynthesis.speak(u);
+        } catch(e) {}
     }
 
     function playShimmer() {
@@ -613,6 +766,7 @@
     const $timerWrap = document.getElementById('timer-wrap');
     const $timerFill = document.getElementById('timer-fill');
     const $hint      = document.getElementById('hint');
+    const $phoneme   = document.getElementById('phoneme-display');
 
     function showOverlay(el) { el.classList.add('active'); }
     function hideOverlay(el) { el.classList.remove('active'); }
@@ -651,9 +805,15 @@
         const rd = rounds[currentRound];
         rd.options.forEach((opt, i) => orbs.push(createOrb(opt.letter, ORB_COLORS[i], i)));
 
-        // Speak immediately (iOS needs this within the user gesture chain)
-        speakPhoneme(rd.target.voice);
-        // Shimmer can be delayed safely (Web Audio stays unlocked once resumed)
+        // Show phoneme visually (glows above the Focus during intro)
+        $phoneme.textContent = '/ ' + rd.target.letter + ' /';
+        $phoneme.classList.add('show');
+
+        // Play phoneme sound via Web Audio synthesis (reliable on all platforms)
+        synthPhoneme(rd.target.letter);
+        // Also try speechSynthesis as bonus (works on desktop, flaky on iOS)
+        trySpeechSynthesis(rd.target.voice);
+        // Shimmer a beat later
         setTimeout(() => playShimmer(), 400);
 
         // Show hint on first round of first game
@@ -669,6 +829,8 @@
         const roundTime = Math.max(MIN_ROUND_TIME, BASE_ROUND_TIME - currentRound * TIME_DECREASE);
         roundTimer = roundTime;
         $timerFill.style.width = '100%';
+        // Hide phoneme display — player must tap from memory now
+        $phoneme.classList.remove('show');
     }
 
     function handleOrbTap(orbIndex) {
@@ -728,6 +890,7 @@
         stateTimer = 0;
         clearOrbs();
         $timerWrap.style.display = 'none';
+        $phoneme.classList.remove('show');
 
         focusCharge = score / NUM_ROUNDS;
         playCascadeChord(focusCharge);
