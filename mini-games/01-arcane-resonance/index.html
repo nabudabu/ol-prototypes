@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!--
+        Mini-Game #01: Arcane Resonance
+        Curriculum: Alphabetic Principle → Recognition (CSV Row 30)
+        Exercise: "1. Child hears sound. 2. Child sees letters. 3. Child taps letter associated with said sound."
+        Input: Tactile (tap) | Output: Visual + Auditory | Unit: Sound → Letter
+    -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Arcane Resonance</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Cinzel:wght@700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            width: 100%; height: 100%;
+            overflow: hidden;
+            background: #050510;
+            color: #fff;
+            touch-action: none;
+            -webkit-user-select: none;
+            user-select: none;
+            font-family: 'Cinzel', Georgia, serif;
+        }
+        canvas { display: block; }
+
+        .overlay {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 20;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.4s ease;
+        }
+        .overlay.active { opacity: 1; pointer-events: auto; }
+
+        /* Title */
+        #title-screen {
+            background: radial-gradient(ellipse at center, rgba(20,10,50,0.92), rgba(5,5,16,0.98));
+        }
+        #title-screen h1 {
+            font-family: 'Cinzel Decorative', 'Cinzel', serif;
+            font-size: clamp(28px, 7vw, 56px);
+            letter-spacing: 4px;
+            text-shadow: 0 0 40px rgba(120,60,255,0.7), 0 0 80px rgba(120,60,255,0.3);
+            margin-bottom: 32px;
+            text-align: center;
+            line-height: 1.3;
+        }
+        #title-screen .prompt {
+            font-size: clamp(12px, 3vw, 16px);
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            animation: breathe 3s ease-in-out infinite;
+        }
+
+        /* Timer bar */
+        #timer-wrap {
+            position: fixed;
+            top: 16px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 55%;
+            max-width: 260px;
+            height: 3px;
+            background: rgba(255,255,255,0.06);
+            border-radius: 2px;
+            overflow: hidden;
+            z-index: 10;
+            display: none;
+        }
+        #timer-fill {
+            height: 100%;
+            width: 100%;
+            border-radius: 2px;
+            background: linear-gradient(90deg, #ff4466, #ffaa44, #44ffcc);
+            box-shadow: 0 0 8px rgba(68,255,204,0.4);
+            transition: width 0.1s linear;
+        }
+
+        /* Hint */
+        #hint {
+            position: fixed;
+            top: 15%;
+            left: 0; right: 0;
+            text-align: center;
+            font-size: clamp(18px, 4.5vw, 28px);
+            letter-spacing: 6px;
+            z-index: 10;
+            pointer-events: none;
+            opacity: 0;
+        }
+        #hint.show {
+            animation: hintFade 2s ease-out forwards;
+        }
+
+        /* Result screen */
+        #result-screen {
+            background: radial-gradient(ellipse at center, rgba(20,10,50,0.9), rgba(5,5,16,0.97));
+        }
+        #result-screen .result-label {
+            font-family: 'Cinzel Decorative', 'Cinzel', serif;
+            font-size: clamp(22px, 5.5vw, 40px);
+            letter-spacing: 3px;
+            margin-bottom: 16px;
+            text-align: center;
+        }
+        #result-screen .result-score {
+            font-size: clamp(40px, 10vw, 64px);
+            letter-spacing: 6px;
+            margin-bottom: 32px;
+        }
+        #result-screen .prompt {
+            font-size: clamp(12px, 3vw, 16px);
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            animation: breathe 3s ease-in-out infinite;
+        }
+
+        @keyframes breathe {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 0.7; }
+        }
+        @keyframes hintFade {
+            0% { opacity: 0; transform: translateY(6px); }
+            20% { opacity: 0.5; transform: translateY(0); }
+            70% { opacity: 0.5; }
+            100% { opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="timer-wrap"><div id="timer-fill"></div></div>
+    <div id="hint">Listen...</div>
+
+    <div id="title-screen" class="overlay active">
+        <h1>Arcane<br>Resonance</h1>
+        <p class="prompt">Tap to Enter</p>
+    </div>
+
+    <div id="result-screen" class="overlay">
+        <div class="result-label" id="result-label">Power Restored</div>
+        <div class="result-score" id="result-score">5 / 5</div>
+        <p class="prompt">Tap to Retry</p>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <script>
+    // ================================================================
+    //  ARCANE RESONANCE — Mini-Game #01
+    //  Curriculum: Alphabetic Principle → Recognition (CSV Row 30)
+    // ================================================================
+
+    // ---------- CONFIG ----------
+    const NUM_ROUNDS      = 5;
+    const BASE_ROUND_TIME = 3.8;
+    const TIME_DECREASE   = 0.25;
+    const MIN_ROUND_TIME  = 2.2;
+    const INTRO_TIME      = 2.0;
+    const SPIRAL_TIME     = 0.55;
+    const FEEDBACK_PAUSE  = 0.4;
+    const CASCADE_TIME    = 2.5;
+    const NUM_ORBS        = 4;
+    const ORBIT_SPEED     = 0.35;
+
+    const PHONEMES = [
+        { letter: 's', voice: 'sss'  },
+        { letter: 't', voice: 'tuh'  },
+        { letter: 'm', voice: 'mmm'  },
+        { letter: 'b', voice: 'buh'  },
+        { letter: 'f', voice: 'fff'  },
+        { letter: 'k', voice: 'kuh'  },
+        { letter: 'p', voice: 'puh'  },
+        { letter: 'n', voice: 'nnn'  },
+        { letter: 'l', voice: 'lll'  },
+        { letter: 'd', voice: 'duh'  },
+        { letter: 'g', voice: 'guh'  },
+        { letter: 'r', voice: 'rrr'  },
+    ];
+
+    const ORB_COLORS = [0x00ffcc, 0xcc66ff, 0xffcc33, 0x55aaff];
+    const ORB_ORBITS = [
+        { startAngle: 0,              tiltX:  0.25, tiltZ:  0.0,  radius: 2.1 },
+        { startAngle: Math.PI * 0.5,  tiltX: -0.15, tiltZ:  0.3, radius: 2.25 },
+        { startAngle: Math.PI,        tiltX:  0.1,  tiltZ: -0.2, radius: 2.0 },
+        { startAngle: Math.PI * 1.5,  tiltX: -0.2,  tiltZ:  0.15, radius: 2.35 },
+    ];
+
+    // ---------- STATE ----------
+    let state       = 'title';
+    let stateTimer  = 0;
+    let roundTimer  = 0;
+    let currentRound = 0;
+    let score       = 0;
+    let focusCharge = 0;
+    let rounds      = [];
+    let feedbackType = '';
+    let feedbackOrbIdx = -1;
+    let shakeAmount = 0;
+    let firstGame   = true;
+
+    // ---------- THREE.JS ----------
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x050510);
+    scene.fog = new THREE.FogExp2(0x050510, 0.018);
+
+    const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 100);
+    camera.position.set(0, 0.3, 6.5);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.1;
+    document.body.prepend(renderer.domElement);
+
+    // Lights
+    const ambLight = new THREE.AmbientLight(0x0d0820, 0.6);
+    scene.add(ambLight);
+    const keyLight = new THREE.PointLight(0x7744cc, 1.5, 20);
+    keyLight.position.set(0, 4, 5);
+    scene.add(keyLight);
+    const fillLight = new THREE.PointLight(0x223366, 0.6, 15);
+    fillLight.position.set(-4, -2, 3);
+    scene.add(fillLight);
+
+    // ---------- STARS ----------
+    (function createStars() {
+        const count = 280;
+        const pos = new Float32Array(count * 3);
+        for (let i = 0; i < count; i++) {
+            const th = Math.random() * Math.PI * 2;
+            const ph = Math.acos(2 * Math.random() - 1);
+            const r  = 25 + Math.random() * 20;
+            pos[i*3]   = r * Math.sin(ph) * Math.cos(th);
+            pos[i*3+1] = r * Math.sin(ph) * Math.sin(th) * 0.6 + 8;
+            pos[i*3+2] = r * Math.cos(ph);
+        }
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        scene.add(new THREE.Points(geo, new THREE.PointsMaterial({
+            color: 0xffffff, size: 0.12, transparent: true, opacity: 0.55,
+        })));
+    })();
+
+    // ---------- AMBIENT PARTICLES ----------
+    const ambParticles = (function() {
+        const count = 120;
+        const pos = new Float32Array(count * 3);
+        for (let i = 0; i < count; i++) {
+            pos[i*3]   = (Math.random() - 0.5) * 14;
+            pos[i*3+1] = (Math.random() - 0.5) * 10;
+            pos[i*3+2] = (Math.random() - 0.5) * 8 - 1;
+        }
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        const pts = new THREE.Points(geo, new THREE.PointsMaterial({
+            color: 0x5522aa, size: 0.035, transparent: true, opacity: 0.4,
+        }));
+        scene.add(pts);
+        return pts;
+    })();
+
+    // ---------- ARCANE FOCUS ----------
+    const focus = (function() {
+        const group = new THREE.Group();
+        const geo = new THREE.OctahedronGeometry(0.55, 0);
+        const mat = new THREE.MeshStandardMaterial({
+            color: 0x331866,
+            emissive: 0x7733cc,
+            emissiveIntensity: 0.06,
+            roughness: 0.08,
+            metalness: 0.95,
+            transparent: true,
+            opacity: 0.75,
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        group.add(mesh);
+
+        const light = new THREE.PointLight(0x8844ff, 0.3, 8);
+        group.add(light);
+
+        // Tiny aura particles
+        const auraCount = 40;
+        const auraPos = new Float32Array(auraCount * 3);
+        const auraVel = [];
+        for (let i = 0; i < auraCount; i++) {
+            const a = Math.random() * Math.PI * 2;
+            const r = 0.3 + Math.random() * 0.5;
+            auraPos[i*3]   = Math.cos(a) * r;
+            auraPos[i*3+1] = (Math.random() - 0.5) * 0.8;
+            auraPos[i*3+2] = Math.sin(a) * r;
+            auraVel.push({ angle: a, r, speed: 0.3 + Math.random() * 0.4, ySpeed: 0.2 + Math.random() * 0.3 });
+        }
+        const auraGeo = new THREE.BufferGeometry();
+        auraGeo.setAttribute('position', new THREE.BufferAttribute(auraPos, 3));
+        const auraMat = new THREE.PointsMaterial({
+            color: 0x8844ff, size: 0.05, transparent: true, opacity: 0.5,
+        });
+        const aura = new THREE.Points(auraGeo, auraMat);
+        group.add(aura);
+
+        scene.add(group);
+        return { group, mesh, mat, light, aura, auraVel, auraGeo };
+    })();
+
+    // ---------- FLASH PLANE ----------
+    const flashPlane = (function() {
+        const mat = new THREE.MeshBasicMaterial({
+            color: 0xffffff, transparent: true, opacity: 0, depthTest: false,
+        });
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), mat);
+        mesh.position.z = 4;
+        scene.add(mesh);
+        return { mesh, mat };
+    })();
+
+    // ---------- AUDIO ----------
+    let audioCtx = null;
+    let droneOsc = null, droneGain = null;
+
+    function initAudio() {
+        if (audioCtx) return;
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+
+    function startDrone() {
+        if (!audioCtx || droneOsc) return;
+        droneOsc = audioCtx.createOscillator();
+        droneGain = audioCtx.createGain();
+        const filter = audioCtx.createBiquadFilter();
+        droneOsc.type = 'sine';
+        droneOsc.frequency.value = 55;
+        filter.type = 'lowpass';
+        filter.frequency.value = 120;
+        droneGain.gain.value = 0;
+        droneOsc.connect(filter);
+        filter.connect(droneGain);
+        droneGain.connect(audioCtx.destination);
+        droneOsc.start();
+        droneGain.gain.linearRampToValueAtTime(0.06, audioCtx.currentTime + 2);
+    }
+
+    function speakPhoneme(text) {
+        if (!window.speechSynthesis) return;
+        speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(text);
+        u.rate = 0.72; u.pitch = 0.8; u.volume = 1.0;
+        speechSynthesis.speak(u);
+        // Mystical echo
+        setTimeout(() => {
+            if (!window.speechSynthesis) return;
+            const echo = new SpeechSynthesisUtterance(text);
+            echo.rate = 0.6; echo.pitch = 0.65; echo.volume = 0.4;
+            speechSynthesis.speak(echo);
+        }, 350);
+    }
+
+    function playShimmer() {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        const filter = audioCtx.createBiquadFilter();
+        osc.type = 'sine';
+        osc.frequency.value = 1800 + Math.random() * 400;
+        filter.type = 'bandpass'; filter.frequency.value = 2000; filter.Q.value = 4;
+        osc.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
+        const t = audioCtx.currentTime;
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(0.04, t + 0.08);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 1.8);
+        osc.start(t); osc.stop(t + 1.8);
+    }
+
+    function playResonance() {
+        if (!audioCtx) return;
+        // Ethereal harmonic chord
+        [261, 392, 523, 784].forEach((freq, i) => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sine'; osc.frequency.value = freq;
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            const t = audioCtx.currentTime + i * 0.06;
+            gain.gain.setValueAtTime(0, t);
+            gain.gain.linearRampToValueAtTime(0.12, t + 0.03);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 1.2);
+            osc.start(t); osc.stop(t + 1.2);
+        });
+    }
+
+    function playDissonance() {
+        if (!audioCtx) return;
+        [95, 113].forEach(freq => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sawtooth'; osc.frequency.value = freq;
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            const t = audioCtx.currentTime;
+            gain.gain.setValueAtTime(0.1, t);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+            osc.start(t); osc.stop(t + 0.35);
+        });
+    }
+
+    function playOrbPing(index) {
+        if (!audioCtx) return;
+        const freq = 1200 + index * 200;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine'; osc.frequency.value = freq;
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        const t = audioCtx.currentTime;
+        gain.gain.setValueAtTime(0.08, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+        osc.start(t); osc.stop(t + 0.25);
+    }
+
+    function playCascadeChord(charge) {
+        if (!audioCtx) return;
+        const baseNotes = [196, 261, 330, 392, 523];
+        const notes = baseNotes.slice(0, Math.max(2, Math.round(charge * 5)));
+        notes.forEach((freq, i) => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sine'; osc.frequency.value = freq;
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            const t = audioCtx.currentTime + i * 0.12;
+            gain.gain.setValueAtTime(0, t);
+            gain.gain.linearRampToValueAtTime(0.1 * charge + 0.04, t + 0.05);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 2.5);
+            osc.start(t); osc.stop(t + 2.5);
+        });
+    }
+
+    // ---------- RUNE TEXTURE ----------
+    function createRuneTexture(letter, colorHex) {
+        const size = 256;
+        const canvas = document.createElement('canvas');
+        canvas.width = size; canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        const c = new THREE.Color(colorHex);
+        const rgb = `rgb(${c.r*255|0},${c.g*255|0},${c.b*255|0})`;
+
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = `bold ${size * 0.5}px "Cinzel", Georgia, serif`;
+
+        // Outer glow layers
+        ctx.shadowColor = rgb;
+        ctx.shadowBlur = 35;
+        ctx.fillStyle = rgb;
+        ctx.globalAlpha = 0.6;
+        for (let i = 0; i < 4; i++) ctx.fillText(letter.toUpperCase(), size/2, size/2);
+
+        // Bright center
+        ctx.globalAlpha = 1.0;
+        ctx.shadowColor = '#ffffff';
+        ctx.shadowBlur = 12;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(letter.toUpperCase(), size/2, size/2);
+
+        return new THREE.CanvasTexture(canvas);
+    }
+
+    // ---------- ORB SYSTEM ----------
+    let orbs = [];
+
+    function createOrb(letter, colorHex, index) {
+        const cfg = ORB_ORBITS[index];
+        const group = new THREE.Group();
+
+        // Translucent sphere
+        const sphere = new THREE.Mesh(
+            new THREE.SphereGeometry(0.38, 20, 14),
+            new THREE.MeshStandardMaterial({
+                color: colorHex,
+                transparent: true,
+                opacity: 0.18,
+                emissive: colorHex,
+                emissiveIntensity: 0.15,
+                roughness: 0.05,
+                metalness: 0.4,
+            })
+        );
+        group.add(sphere);
+
+        // Invisible hit target (generous for mobile taps)
+        const hitSphere = new THREE.Mesh(
+            new THREE.SphereGeometry(0.6, 8, 6),
+            new THREE.MeshBasicMaterial({ visible: false })
+        );
+        hitSphere.userData.orbIndex = index;
+        group.add(hitSphere);
+
+        // Rune letter sprite
+        const tex = createRuneTexture(letter, colorHex);
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+            map: tex, transparent: true, depthTest: false,
+        }));
+        sprite.scale.set(0.7, 0.7, 1);
+        group.add(sprite);
+
+        // Glow light
+        const light = new THREE.PointLight(colorHex, 0.25, 2.5);
+        group.add(light);
+
+        // Trail particles
+        const trailCount = 8;
+        const trailPos = new Float32Array(trailCount * 3);
+        const trailGeo = new THREE.BufferGeometry();
+        trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPos, 3));
+        const trail = new THREE.Points(trailGeo, new THREE.PointsMaterial({
+            color: colorHex, size: 0.03, transparent: true, opacity: 0.35,
+        }));
+        group.add(trail);
+
+        group.position.set(0, 0, 0); // start at focus, animate out
+        scene.add(group);
+
+        return {
+            group, sphere, hitSphere, sprite, light, trail, trailGeo,
+            letter, color: colorHex, cfg,
+            bobOffset: Math.random() * Math.PI * 2,
+            emergeProgress: 0,   // 0→1: emerging from Focus to orbit
+            alive: true,
+            spiraling: false,
+            spiralTime: 0,
+            spiralStartPos: null,
+            trailHistory: [],
+        };
+    }
+
+    function clearOrbs() {
+        orbs.forEach(o => scene.remove(o.group));
+        orbs = [];
+    }
+
+    function orbWorldPos(orb, elapsed) {
+        const cfg = orb.cfg;
+        const angle = cfg.startAngle + elapsed * ORBIT_SPEED;
+        let x = Math.cos(angle) * cfg.radius;
+        let y = Math.sin(angle) * cfg.radius;
+        let z = 0;
+        // Tilt around X
+        const cy = y * Math.cos(cfg.tiltX) - z * Math.sin(cfg.tiltX);
+        const cz = y * Math.sin(cfg.tiltX) + z * Math.cos(cfg.tiltX);
+        // Tilt around Z
+        const fx = x * Math.cos(cfg.tiltZ) - cy * Math.sin(cfg.tiltZ);
+        const fy = x * Math.sin(cfg.tiltZ) + cy * Math.cos(cfg.tiltZ);
+        return new THREE.Vector3(fx, fy, cz);
+    }
+
+    // ---------- PARTICLE EFFECTS ----------
+    let explosions = [];
+    let ripples = [];
+
+    function createExplosion(pos, colorHex, count) {
+        count = count || 35;
+        const geo = new THREE.BufferGeometry();
+        const positions = new Float32Array(count * 3);
+        const vels = [];
+        for (let i = 0; i < count; i++) {
+            positions[i*3] = pos.x; positions[i*3+1] = pos.y; positions[i*3+2] = pos.z;
+            const th = Math.random() * Math.PI * 2;
+            const ph = Math.acos(2 * Math.random() - 1);
+            const sp = 1.5 + Math.random() * 4;
+            vels.push(new THREE.Vector3(
+                Math.sin(ph) * Math.cos(th) * sp,
+                Math.sin(ph) * Math.sin(th) * sp,
+                Math.cos(ph) * sp * 0.4,
+            ));
+        }
+        geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        const mesh = new THREE.Points(geo, new THREE.PointsMaterial({
+            color: colorHex, size: 0.09, transparent: true, opacity: 1,
+        }));
+        scene.add(mesh);
+        explosions.push({ mesh, vels, life: 1.0 });
+    }
+
+    function createRipple(colorHex) {
+        const geo = new THREE.TorusGeometry(0.3, 0.04, 8, 48);
+        const mat = new THREE.MeshBasicMaterial({
+            color: colorHex, transparent: true, opacity: 0.7, side: THREE.DoubleSide,
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.rotation.x = Math.PI / 2 * 0.3; // slight tilt for 3D feel
+        scene.add(mesh);
+        ripples.push({ mesh, mat, life: 1.0 });
+    }
+
+    // ---------- UI ----------
+    const $title     = document.getElementById('title-screen');
+    const $result    = document.getElementById('result-screen');
+    const $resultLbl = document.getElementById('result-label');
+    const $resultScr = document.getElementById('result-score');
+    const $timerWrap = document.getElementById('timer-wrap');
+    const $timerFill = document.getElementById('timer-fill');
+    const $hint      = document.getElementById('hint');
+
+    function showOverlay(el) { el.classList.add('active'); }
+    function hideOverlay(el) { el.classList.remove('active'); }
+
+    // ---------- GAME LOGIC ----------
+    function generateRounds() {
+        rounds = [];
+        const shuffled = [...PHONEMES].sort(() => Math.random() - 0.5);
+        for (let i = 0; i < NUM_ROUNDS; i++) {
+            const target = shuffled[i % shuffled.length];
+            const pool = PHONEMES.filter(p => p.letter !== target.letter);
+            const distractors = pool.sort(() => Math.random() - 0.5).slice(0, NUM_ORBS - 1);
+            const options = [target, ...distractors].sort(() => Math.random() - 0.5);
+            rounds.push({ target, options });
+        }
+    }
+
+    function startGame() {
+        initAudio();
+        startDrone();
+        score = 0;
+        focusCharge = 0;
+        currentRound = 0;
+        generateRounds();
+        hideOverlay($title);
+        hideOverlay($result);
+        $timerWrap.style.display = '';
+        startRoundIntro();
+    }
+
+    function startRoundIntro() {
+        state = 'intro';
+        stateTimer = 0;
+        clearOrbs();
+
+        const rd = rounds[currentRound];
+        rd.options.forEach((opt, i) => orbs.push(createOrb(opt.letter, ORB_COLORS[i], i)));
+
+        // Speak the phoneme + shimmer
+        setTimeout(() => {
+            speakPhoneme(rd.target.voice);
+            playShimmer();
+        }, 400);
+
+        // Show hint on first round of first game
+        if (currentRound === 0 && firstGame) {
+            $hint.classList.remove('show');
+            void $hint.offsetWidth; // reflow
+            $hint.classList.add('show');
+        }
+    }
+
+    function startPlaying() {
+        state = 'playing';
+        const roundTime = Math.max(MIN_ROUND_TIME, BASE_ROUND_TIME - currentRound * TIME_DECREASE);
+        roundTimer = roundTime;
+        $timerFill.style.width = '100%';
+    }
+
+    function handleOrbTap(orbIndex) {
+        if (state !== 'playing') return;
+        const orb = orbs[orbIndex];
+        if (!orb || !orb.alive) return;
+
+        const rd = rounds[currentRound];
+        const isCorrect = orb.letter === rd.target.letter;
+
+        feedbackOrbIdx = orbIndex;
+
+        if (isCorrect) {
+            feedbackType = 'correct';
+            score++;
+            orb.spiraling = true;
+            orb.spiralTime = 0;
+            orb.spiralStartPos = orb.group.position.clone();
+            // Fade other orbs
+            orbs.forEach((o, i) => { if (i !== orbIndex) o.alive = false; });
+            playResonance();
+        } else {
+            feedbackType = 'wrong';
+            orb.sphere.material.emissive.set(0xff2222);
+            orb.sphere.material.emissiveIntensity = 0.8;
+            orb.sphere.material.opacity = 0.5;
+            orb.light.color.set(0xff2222);
+            playDissonance();
+            triggerFlash(0xff2244, 0.12);
+            shakeAmount = 0.08;
+        }
+
+        state = 'feedback';
+        stateTimer = 0;
+    }
+
+    function handleTimeout() {
+        feedbackType = 'timeout';
+        feedbackOrbIdx = -1;
+        playDissonance();
+        triggerFlash(0xff2244, 0.08);
+        state = 'feedback';
+        stateTimer = 0;
+    }
+
+    function advanceRound() {
+        currentRound++;
+        if (currentRound >= NUM_ROUNDS) {
+            startCascade();
+        } else {
+            startRoundIntro();
+        }
+    }
+
+    function startCascade() {
+        state = 'cascade';
+        stateTimer = 0;
+        clearOrbs();
+        $timerWrap.style.display = 'none';
+
+        focusCharge = score / NUM_ROUNDS;
+        playCascadeChord(focusCharge);
+
+        // Burst particles from Focus
+        const burstCount = Math.floor(20 + focusCharge * 50);
+        createExplosion(new THREE.Vector3(0, 0, 0), 0x8844ff, burstCount);
+        if (focusCharge > 0.5) createExplosion(new THREE.Vector3(0, 0, 0), 0xffcc44, burstCount / 2);
+        for (let i = 0; i < Math.ceil(focusCharge * 4); i++) {
+            setTimeout(() => createRipple(0x8844ff), i * 200);
+        }
+        triggerFlash(0x8844ff, 0.2 + focusCharge * 0.3);
+        shakeAmount = 0.1 + focusCharge * 0.2;
+    }
+
+    function showResults() {
+        state = 'results';
+        firstGame = false;
+        if (score === NUM_ROUNDS) {
+            $resultLbl.textContent = 'Power Restored';
+            $resultLbl.style.textShadow = '0 0 30px rgba(255,204,68,0.7)';
+            $resultScr.style.color = '#ffcc44';
+        } else if (score >= NUM_ROUNDS * 0.6) {
+            $resultLbl.textContent = 'The Focus Stirs';
+            $resultLbl.style.textShadow = '0 0 30px rgba(136,68,255,0.6)';
+            $resultScr.style.color = '#aa88ff';
+        } else {
+            $resultLbl.textContent = 'The Focus Dims';
+            $resultLbl.style.textShadow = '0 0 30px rgba(100,100,140,0.4)';
+            $resultScr.style.color = '#667788';
+        }
+        $resultScr.textContent = `${score} / ${NUM_ROUNDS}`;
+        showOverlay($result);
+    }
+
+    function triggerFlash(color, intensity) {
+        flashPlane.mat.color.set(color);
+        flashPlane.mat.opacity = intensity;
+    }
+
+    // ---------- INPUT ----------
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+
+    function onPointerDown(e) {
+        e.preventDefault();
+        if (state === 'title')   { startGame(); return; }
+        if (state === 'results') { startGame(); return; }
+        if (state !== 'playing') return;
+
+        const touch = e.touches ? e.touches[0] : e;
+        pointer.x = (touch.clientX / innerWidth) * 2 - 1;
+        pointer.y = -(touch.clientY / innerHeight) * 2 + 1;
+        raycaster.setFromCamera(pointer, camera);
+
+        // Check hit targets (generous invisible spheres)
+        const hitTargets = orbs.filter(o => o.alive).map(o => o.hitSphere);
+        const hits = raycaster.intersectObjects(hitTargets);
+        if (hits.length > 0) {
+            handleOrbTap(hits[0].object.userData.orbIndex);
+        }
+    }
+
+    // Canvas listeners for gameplay (orb tapping)
+    renderer.domElement.addEventListener('touchstart', onPointerDown, { passive: false });
+    renderer.domElement.addEventListener('mousedown', onPointerDown);
+
+    // Overlay listeners (overlays block canvas events when active)
+    [$title, $result].forEach(el => {
+        el.addEventListener('touchstart', (e) => { e.preventDefault(); onPointerDown(e); }, { passive: false });
+        el.addEventListener('mousedown', (e) => onPointerDown(e));
+    });
+
+    // ---------- RESIZE ----------
+    window.addEventListener('resize', () => {
+        camera.aspect = innerWidth / innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(innerWidth, innerHeight);
+    });
+
+    // ---------- MAIN LOOP ----------
+    const clock = new THREE.Clock();
+    const cameraBase = camera.position.clone();
+
+    function update() {
+        requestAnimationFrame(update);
+        const dt = Math.min(clock.getDelta(), 0.1);
+        const elapsed = clock.elapsedTime;
+        stateTimer += dt;
+
+        // --- Ambient particles drift ---
+        const ap = ambParticles.geometry.attributes.position.array;
+        for (let i = 0; i < ap.length; i += 3) {
+            ap[i+1] += dt * 0.06;
+            if (ap[i+1] > 5) ap[i+1] = -5;
+        }
+        ambParticles.geometry.attributes.position.needsUpdate = true;
+        ambParticles.rotation.y += dt * 0.005;
+
+        // --- Focus animation ---
+        const chargeVis = focusCharge;
+        focus.mat.emissiveIntensity = 0.06 + chargeVis * 0.7 + Math.sin(elapsed * 2.5) * (0.02 + chargeVis * 0.08);
+        focus.light.intensity = 0.3 + chargeVis * 2.5 + Math.sin(elapsed * 2.5) * 0.15;
+        focus.mesh.rotation.y += dt * (0.25 + chargeVis * 0.8);
+        focus.mesh.rotation.x = Math.sin(elapsed * 0.7) * 0.15;
+
+        // Focus aura particles orbit
+        const auraArr = focus.auraGeo.attributes.position.array;
+        for (let i = 0; i < focus.auraVel.length; i++) {
+            const v = focus.auraVel[i];
+            v.angle += dt * v.speed;
+            const r = v.r * (0.7 + chargeVis * 0.6);
+            auraArr[i*3]   = Math.cos(v.angle) * r;
+            auraArr[i*3+1] = Math.sin(elapsed * v.ySpeed + i) * r * 0.5;
+            auraArr[i*3+2] = Math.sin(v.angle) * r;
+        }
+        focus.auraGeo.attributes.position.needsUpdate = true;
+        focus.aura.material.opacity = 0.3 + chargeVis * 0.5;
+
+        // --- Orb animations ---
+        orbs.forEach((orb, idx) => {
+            if (orb.spiraling) {
+                // Spiral into Focus
+                orb.spiralTime += dt;
+                const t = Math.min(orb.spiralTime / SPIRAL_TIME, 1);
+                const ease = t * t * (3 - 2 * t); // smoothstep
+                orb.group.position.lerpVectors(orb.spiralStartPos, new THREE.Vector3(0,0,0), ease);
+                orb.group.scale.setScalar(1 - ease * 0.8);
+                orb.sphere.material.opacity = 0.18 + ease * 0.4;
+                orb.sphere.material.emissiveIntensity = 0.15 + ease * 1.5;
+                orb.group.rotation.z += dt * (5 + ease * 15);
+
+                if (t >= 1) {
+                    // Absorbed into Focus
+                    orb.spiraling = false;
+                    orb.alive = false;
+                    scene.remove(orb.group);
+                    createExplosion(new THREE.Vector3(0,0,0), orb.color, 40);
+                    createRipple(orb.color);
+                    triggerFlash(orb.color, 0.35);
+                    shakeAmount = 0.18;
+                    focusCharge = Math.min(1, focusCharge + 1 / NUM_ROUNDS);
+                }
+            } else if (orb.alive) {
+                // Emerge from Focus then orbit
+                orb.emergeProgress = Math.min(orb.emergeProgress + dt * 1.8, 1);
+                const ep = orb.emergeProgress;
+                const easeOut = 1 - Math.pow(1 - ep, 3);
+
+                const target = orbWorldPos(orb, elapsed);
+                orb.group.position.lerpVectors(new THREE.Vector3(0,0,0), target, easeOut);
+                orb.group.scale.setScalar(easeOut);
+
+                // Bob
+                orb.group.position.y += Math.sin(elapsed * 1.8 + orb.bobOffset) * 0.06;
+
+                // Gentle rotation
+                orb.sphere.rotation.y += dt * 0.3;
+
+                // Pulse
+                const pulse = 0.15 + Math.sin(elapsed * 2.5 + orb.bobOffset) * 0.06;
+                orb.sphere.material.emissiveIntensity = pulse;
+                orb.light.intensity = pulse + 0.1;
+
+                // Trail
+                orb.trailHistory.unshift(orb.group.position.clone());
+                if (orb.trailHistory.length > 8) orb.trailHistory.pop();
+                const tp = orb.trailGeo.attributes.position.array;
+                for (let j = 0; j < 8; j++) {
+                    const h = orb.trailHistory[Math.min(j, orb.trailHistory.length - 1)];
+                    tp[j*3] = h.x; tp[j*3+1] = h.y; tp[j*3+2] = h.z;
+                }
+                orb.trailGeo.attributes.position.needsUpdate = true;
+            } else {
+                // Fading dead orb
+                orb.group.scale.multiplyScalar(0.92);
+                orb.sphere.material.opacity *= 0.9;
+                orb.light.intensity *= 0.9;
+                if (orb.sphere.material.opacity < 0.005) {
+                    scene.remove(orb.group);
+                }
+            }
+        });
+
+        // --- Explosions ---
+        explosions = explosions.filter(ex => {
+            ex.life -= dt * 2.2;
+            ex.mesh.material.opacity = Math.max(0, ex.life);
+            const p = ex.mesh.geometry.attributes.position.array;
+            for (let i = 0; i < ex.vels.length; i++) {
+                p[i*3]   += ex.vels[i].x * dt;
+                p[i*3+1] += ex.vels[i].y * dt;
+                p[i*3+2] += ex.vels[i].z * dt;
+                ex.vels[i].multiplyScalar(0.96);
+                ex.vels[i].y -= dt * 2.5;
+            }
+            ex.mesh.geometry.attributes.position.needsUpdate = true;
+            if (ex.life <= 0) { scene.remove(ex.mesh); return false; }
+            return true;
+        });
+
+        // --- Ripples ---
+        ripples = ripples.filter(rp => {
+            rp.life -= dt * 1.8;
+            rp.mat.opacity = Math.max(0, rp.life * 0.6);
+            const s = 1 + (1 - rp.life) * 7;
+            rp.mesh.scale.set(s, s, s);
+            if (rp.life <= 0) { scene.remove(rp.mesh); return false; }
+            return true;
+        });
+
+        // --- Flash decay ---
+        if (flashPlane.mat.opacity > 0) {
+            flashPlane.mat.opacity *= Math.pow(0.005, dt);
+            if (flashPlane.mat.opacity < 0.003) flashPlane.mat.opacity = 0;
+        }
+
+        // --- Screen shake ---
+        if (shakeAmount > 0.003) {
+            camera.position.x = cameraBase.x + (Math.random() - 0.5) * shakeAmount;
+            camera.position.y = cameraBase.y + (Math.random() - 0.5) * shakeAmount;
+            shakeAmount *= Math.pow(0.01, dt);
+        } else {
+            shakeAmount = 0;
+            camera.position.x = cameraBase.x;
+            camera.position.y = cameraBase.y;
+        }
+
+        // --- Key light pulse ---
+        keyLight.intensity = 1.5 + Math.sin(elapsed * 1.2) * 0.3 + chargeVis * 0.5;
+
+        // --- State machine ---
+        if (state === 'intro' && stateTimer >= INTRO_TIME) {
+            startPlaying();
+        }
+
+        if (state === 'playing') {
+            const roundTime = Math.max(MIN_ROUND_TIME, BASE_ROUND_TIME - currentRound * TIME_DECREASE);
+            roundTimer -= dt;
+            $timerFill.style.width = Math.max(0, roundTimer / roundTime * 100) + '%';
+            if (roundTimer <= 0) handleTimeout();
+        }
+
+        if (state === 'feedback') {
+            const wait = feedbackType === 'correct' ? SPIRAL_TIME + FEEDBACK_PAUSE : FEEDBACK_PAUSE + 0.3;
+            if (stateTimer >= wait && !(feedbackType === 'correct' && orbs.some(o => o.spiraling))) {
+                advanceRound();
+            }
+        }
+
+        if (state === 'cascade' && stateTimer >= CASCADE_TIME) {
+            showResults();
+        }
+
+        renderer.render(scene, camera);
+    }
+
+    update();
+    </script>
+</body>
+</html>
