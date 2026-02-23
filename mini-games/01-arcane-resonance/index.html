@@ -84,24 +84,6 @@
             transition: width 0.1s linear;
         }
 
-        /* Phoneme display — shows during intro, fades for gameplay */
-        #phoneme-display {
-            position: fixed;
-            top: 16%;
-            left: 0; right: 0;
-            text-align: center;
-            font-family: 'Cinzel Decorative', 'Cinzel', serif;
-            font-size: clamp(32px, 8vw, 52px);
-            letter-spacing: 5px;
-            color: #ccaaff;
-            text-shadow: 0 0 25px rgba(136,68,255,0.8), 0 0 50px rgba(136,68,255,0.35);
-            z-index: 10;
-            pointer-events: none;
-            opacity: 0;
-            transition: opacity 0.4s ease;
-        }
-        #phoneme-display.show { opacity: 1; }
-
         /* Hint — first round only */
         #hint {
             position: fixed;
@@ -156,7 +138,6 @@
 <body>
 
     <div id="timer-wrap"><div id="timer-fill"></div></div>
-    <div id="phoneme-display"></div>
     <div id="hint">Listen...</div>
 
     <div id="title-screen" class="overlay active">
@@ -430,67 +411,101 @@
 
     function playVoicedStop(freq, duration) {
         if (!audioCtx) return;
-        playClick(freq * 3, 0.04);
-        const osc = audioCtx.createOscillator();
-        const g = audioCtx.createGain();
-        osc.type = 'sawtooth'; osc.frequency.value = freq;
-        osc.connect(g); g.connect(audioCtx.destination);
+        playClick(freq * 2, 0.05);
         const t = audioCtx.currentTime;
-        g.gain.setValueAtTime(0, t + 0.025);
-        g.gain.linearRampToValueAtTime(0.1, t + 0.05);
-        g.gain.exponentialRampToValueAtTime(0.001, t + duration);
-        osc.start(t + 0.025); osc.stop(t + duration);
+        // Fundamental — triangle for warmth
+        const osc1 = audioCtx.createOscillator();
+        const g1 = audioCtx.createGain();
+        osc1.type = 'triangle'; osc1.frequency.value = freq;
+        osc1.connect(g1); g1.connect(audioCtx.destination);
+        g1.gain.setValueAtTime(0, t + 0.02);
+        g1.gain.linearRampToValueAtTime(0.16, t + 0.05);
+        g1.gain.exponentialRampToValueAtTime(0.001, t + duration);
+        osc1.start(t + 0.02); osc1.stop(t + duration);
+        // Overtone so phone speakers can reproduce it
+        const osc2 = audioCtx.createOscillator();
+        const g2 = audioCtx.createGain();
+        osc2.type = 'sine'; osc2.frequency.value = freq * 2;
+        osc2.connect(g2); g2.connect(audioCtx.destination);
+        g2.gain.setValueAtTime(0, t + 0.02);
+        g2.gain.linearRampToValueAtTime(0.09, t + 0.05);
+        g2.gain.exponentialRampToValueAtTime(0.001, t + duration * 0.8);
+        osc2.start(t + 0.02); osc2.stop(t + duration);
     }
 
     function playHum(freq, duration) {
         if (!audioCtx) return;
+        const t = audioCtx.currentTime;
+        // Fundamental with vibrato
         const osc = audioCtx.createOscillator();
         const g = audioCtx.createGain();
         osc.type = 'sine'; osc.frequency.value = freq;
         const lfo = audioCtx.createOscillator();
         const lfoG = audioCtx.createGain();
-        lfo.frequency.value = 5; lfoG.gain.value = 3;
+        lfo.frequency.value = 5; lfoG.gain.value = 4;
         lfo.connect(lfoG); lfoG.connect(osc.frequency);
         osc.connect(g); g.connect(audioCtx.destination);
-        const t = audioCtx.currentTime;
         g.gain.setValueAtTime(0, t);
-        g.gain.linearRampToValueAtTime(0.13, t + 0.04);
-        g.gain.setValueAtTime(0.13, t + duration - 0.06);
+        g.gain.linearRampToValueAtTime(0.16, t + 0.04);
+        g.gain.setValueAtTime(0.16, t + duration - 0.08);
         g.gain.linearRampToValueAtTime(0, t + duration);
         osc.start(t); osc.stop(t + duration);
         lfo.start(t); lfo.stop(t + duration);
+        // Overtone for phone speaker audibility
+        const osc2 = audioCtx.createOscillator();
+        const g2 = audioCtx.createGain();
+        osc2.type = 'sine'; osc2.frequency.value = freq * 2;
+        osc2.connect(g2); g2.connect(audioCtx.destination);
+        g2.gain.setValueAtTime(0, t);
+        g2.gain.linearRampToValueAtTime(0.07, t + 0.04);
+        g2.gain.setValueAtTime(0.07, t + duration - 0.08);
+        g2.gain.linearRampToValueAtTime(0, t + duration);
+        osc2.start(t); osc2.stop(t + duration);
     }
 
     function playGlide(startF, endF, duration) {
         if (!audioCtx) return;
+        const t = audioCtx.currentTime;
+        // Main tone
         const osc = audioCtx.createOscillator();
         const g = audioCtx.createGain();
         osc.type = 'sine';
         osc.connect(g); g.connect(audioCtx.destination);
-        const t = audioCtx.currentTime;
         osc.frequency.setValueAtTime(startF, t);
         osc.frequency.linearRampToValueAtTime(endF, t + duration * 0.5);
         g.gain.setValueAtTime(0, t);
-        g.gain.linearRampToValueAtTime(0.11, t + 0.04);
-        g.gain.setValueAtTime(0.11, t + duration - 0.05);
+        g.gain.linearRampToValueAtTime(0.16, t + 0.04);
+        g.gain.setValueAtTime(0.16, t + duration - 0.05);
         g.gain.linearRampToValueAtTime(0, t + duration);
         osc.start(t); osc.stop(t + duration);
+        // Overtone
+        const osc2 = audioCtx.createOscillator();
+        const g2 = audioCtx.createGain();
+        osc2.type = 'sine';
+        osc2.connect(g2); g2.connect(audioCtx.destination);
+        osc2.frequency.setValueAtTime(startF * 2, t);
+        osc2.frequency.linearRampToValueAtTime(endF * 2, t + duration * 0.5);
+        g2.gain.setValueAtTime(0, t);
+        g2.gain.linearRampToValueAtTime(0.07, t + 0.04);
+        g2.gain.setValueAtTime(0.07, t + duration - 0.05);
+        g2.gain.linearRampToValueAtTime(0, t + duration);
+        osc2.start(t); osc2.stop(t + duration);
     }
 
     function playTrill(freq, duration) {
         if (!audioCtx) return;
+        const t = audioCtx.currentTime;
         const osc = audioCtx.createOscillator();
         const g = audioCtx.createGain();
         osc.type = 'sine'; osc.frequency.value = freq;
         const lfo = audioCtx.createOscillator();
         const lfoG = audioCtx.createGain();
-        lfo.frequency.value = 22; lfoG.gain.value = 18;
+        lfo.frequency.value = 22; lfoG.gain.value = 25;
         lfo.connect(lfoG); lfoG.connect(osc.frequency);
         osc.connect(g); g.connect(audioCtx.destination);
-        const t = audioCtx.currentTime;
         g.gain.setValueAtTime(0, t);
-        g.gain.linearRampToValueAtTime(0.11, t + 0.04);
-        g.gain.setValueAtTime(0.11, t + duration - 0.05);
+        g.gain.linearRampToValueAtTime(0.15, t + 0.04);
+        g.gain.setValueAtTime(0.15, t + duration - 0.05);
         g.gain.linearRampToValueAtTime(0, t + duration);
         osc.start(t); osc.stop(t + duration);
         lfo.start(t); lfo.stop(t + duration);
@@ -498,19 +513,21 @@
 
     function synthPhoneme(letter) {
         if (!audioCtx) return;
+        // All frequencies tuned for phone speakers (min ~300Hz fundamental,
+        // with overtones at 2x so even the lowest sounds are audible).
         switch (letter) {
-            case 's': playNoise(5000, 9000, 0.38, 0.16); break;   // high hiss
-            case 'f': playNoise(1500, 4000, 0.38, 0.13); break;   // lower hiss
-            case 't': playClick(4000, 0.07); break;                // sharp high click
-            case 'k': playClick(1800, 0.09); break;                // mid click
-            case 'p': playClick(700, 0.07); break;                 // soft low click
-            case 'b': playVoicedStop(130, 0.18); break;            // pop + low buzz
-            case 'd': playVoicedStop(230, 0.15); break;            // pop + mid buzz
-            case 'g': playVoicedStop(170, 0.18); break;            // pop + low-mid buzz
-            case 'm': playHum(150, 0.45); break;                   // low gentle hum
-            case 'n': playHum(240, 0.4); break;                    // higher gentle hum
-            case 'l': playGlide(300, 420, 0.35); break;            // rising tone
-            case 'r': playTrill(270, 0.4); break;                  // wavering tone
+            case 's': playNoise(5000, 9000, 0.4, 0.18); break;    // high hiss
+            case 'f': playNoise(1800, 4500, 0.4, 0.15); break;    // softer hiss
+            case 't': playClick(4500, 0.07); break;                // sharp high click
+            case 'k': playClick(2200, 0.09); break;                // mid click
+            case 'p': playClick(1000, 0.07); break;                // softer click
+            case 'b': playVoicedStop(300, 0.22); break;            // pop + warm buzz
+            case 'd': playVoicedStop(420, 0.18); break;            // pop + bright buzz
+            case 'g': playVoicedStop(340, 0.22); break;            // pop + mid buzz
+            case 'm': playHum(320, 0.5); break;                    // gentle hum
+            case 'n': playHum(460, 0.45); break;                   // brighter hum
+            case 'l': playGlide(440, 600, 0.4); break;             // rising tone
+            case 'r': playTrill(400, 0.45); break;                 // wavering tone
         }
     }
 
@@ -766,7 +783,6 @@
     const $timerWrap = document.getElementById('timer-wrap');
     const $timerFill = document.getElementById('timer-fill');
     const $hint      = document.getElementById('hint');
-    const $phoneme   = document.getElementById('phoneme-display');
 
     function showOverlay(el) { el.classList.add('active'); }
     function hideOverlay(el) { el.classList.remove('active'); }
@@ -805,10 +821,6 @@
         const rd = rounds[currentRound];
         rd.options.forEach((opt, i) => orbs.push(createOrb(opt.letter, ORB_COLORS[i], i)));
 
-        // Show phoneme visually (glows above the Focus during intro)
-        $phoneme.textContent = '/ ' + rd.target.letter + ' /';
-        $phoneme.classList.add('show');
-
         // Play phoneme sound via Web Audio synthesis (reliable on all platforms)
         synthPhoneme(rd.target.letter);
         // Also try speechSynthesis as bonus (works on desktop, flaky on iOS)
@@ -829,8 +841,6 @@
         const roundTime = Math.max(MIN_ROUND_TIME, BASE_ROUND_TIME - currentRound * TIME_DECREASE);
         roundTimer = roundTime;
         $timerFill.style.width = '100%';
-        // Hide phoneme display — player must tap from memory now
-        $phoneme.classList.remove('show');
     }
 
     function handleOrbTap(orbIndex) {
@@ -890,7 +900,6 @@
         stateTimer = 0;
         clearOrbs();
         $timerWrap.style.display = 'none';
-        $phoneme.classList.remove('show');
 
         focusCharge = score / NUM_ROUNDS;
         playCascadeChord(focusCharge);
