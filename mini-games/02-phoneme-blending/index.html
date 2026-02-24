@@ -283,7 +283,7 @@ const WORDS = [
 // 0=air, 1=solid, 2=orb_cluster, 3=locked_door, 4=spike, 5=moving_platform
 // ═══════════════════════════════════════════════════════════════
 const ROOM_MAPS = [
-  // Room 0 — Learning Room: gentle intro, one orb, flat terrain with small gap
+  // Room 0 — Learning Room: flat floor, small 2-tile gap (jumpable), orb on pedestal
   [
     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
@@ -291,11 +291,12 @@ const ROOM_MAPS = [
     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
     [0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0],
-    [0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,0],
+    [0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0],
     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-    [1,1,1,1,1,1,0,0,0,1,1,1,1,1,1,3],
+    [1,1,1,1,1,1,1,0,0,1,1,1,1,1,1,3],
   ],
-  // Room 1 — Easy: two levels, 2 orbs, wall section, locked door
+  // Room 1 — Easy: platforms, 2 orbs, wall for wall-jump practice, locked door right
+  // All gaps lead off-screen (respawn) so you can't get trapped
   [
     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
@@ -304,10 +305,10 @@ const ROOM_MAPS = [
     [0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,1],
     [0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0],
     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0],
-    [1,1,1,1,1,0,0,0,0,1,1,1,1,1,1,3],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [1,1,1,1,1,0,0,0,0,0,0,0,1,1,1,3],
   ],
-  // Room 2 — Medium: spike pit, elevated platforms, wall-climb, 2 orbs
+  // Room 2 — Medium: spike pit (fall = respawn), wall-climb to upper orb, platforms
   [
     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
@@ -317,19 +318,19 @@ const ROOM_MAPS = [
     [0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0],
     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
     [1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-    [1,1,1,4,4,4,4,1,1,1,0,0,1,1,1,3],
+    [1,1,4,4,4,4,4,4,1,1,1,1,1,1,1,3],
   ],
-  // Room 3 — Hard: dash-required gap, wall-climb gauntlet, 2 orbs in tricky spots
+  // Room 3 — Hard: dash-required gap over spikes, wall-climb gauntlet, 2 orbs
   [
     [0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0],
     [0,0,0,0,0,0,0,0,0,0,0,0,1,0,2,0],
     [0,0,0,0,0,0,0,0,0,0,0,0,1,0,1,0],
     [0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0],
-    [0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0],
     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
     [0,0,1,1,0,0,0,0,0,0,0,0,0,0,1,1],
-    [0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0],
-    [1,1,1,1,4,4,4,4,4,4,4,1,1,1,1,3],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [1,1,1,1,4,4,4,4,4,4,4,4,1,1,1,3],
   ],
   // Room 4 — Victory: open celebratory room
   [
@@ -667,6 +668,11 @@ function updateTouchBtnState() {
 }
 
 window.addEventListener('touchstart', (e) => {
+  // Let exit button handle its own touches
+  const t0 = e.changedTouches[0];
+  if (t0 && exitBtn.contains(document.elementFromPoint(t0.clientX, t0.clientY))) {
+    return; // don't prevent default — let click fire
+  }
   e.preventDefault();
   ensureAudioCtx();
   for (const touch of e.changedTouches) {
@@ -2165,15 +2171,22 @@ victoryScreen.addEventListener('touchend', (e) => {
   startGame();
 });
 
-// Exit button
-exitBtn.addEventListener('click', () => {
-  if (gameState.phase === 'playing') {
+// Exit button — handle both click and touch for iPad reliability
+function handleExit() {
+  if (gameState.phase === 'playing' || gameState.phase === 'victory') {
     gameState.phase = 'title';
     gameState.paused = true;
     blendState.active = false;
+    victoryScreen.style.display = 'none';
     titleScreen.style.display = 'flex';
     titleScreen.style.opacity = '1';
   }
+}
+exitBtn.addEventListener('click', handleExit);
+exitBtn.addEventListener('touchend', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  handleExit();
 });
 
 // ═══════════════════════════════════════════════════════════════
