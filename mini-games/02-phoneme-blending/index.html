@@ -1,0 +1,2335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Phoneme Quest</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700;900&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body {
+    width:100%; height:100%;
+    overflow:hidden;
+    background:#0a0a2e;
+    touch-action:none;
+    -webkit-touch-callout:none;
+    -webkit-user-select:none;
+    user-select:none;
+  }
+
+  canvas {
+    display:block;
+    position:absolute;
+    image-rendering:pixelated;
+    image-rendering:crisp-edges;
+    -ms-interpolation-mode:nearest-neighbor;
+  }
+
+  /* ── Loading Screen ── */
+  #loading-screen {
+    position:fixed; inset:0; z-index:1000;
+    background:#0a0a2e;
+    display:flex; flex-direction:column;
+    align-items:center; justify-content:center;
+    color:#8844ff;
+    font-family:'Cinzel Decorative', serif;
+    font-size:18px;
+    transition:opacity 0.5s;
+  }
+  #loading-screen .spinner {
+    width:40px; height:40px;
+    border:3px solid #1a1a4e;
+    border-top-color:#8844ff;
+    border-radius:50%;
+    animation:spin 0.8s linear infinite;
+    margin-bottom:20px;
+  }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* ── Title Screen ── */
+  #title-screen {
+    position:fixed; inset:0; z-index:100;
+    background:radial-gradient(ellipse at 50% 40%, #1a1a4e 0%, #0a0a2e 70%);
+    display:flex; flex-direction:column;
+    align-items:center; justify-content:center;
+    pointer-events:auto;
+    transition:opacity 0.6s;
+  }
+  #title-screen h1 {
+    font-family:'Cinzel Decorative', serif;
+    font-weight:900;
+    font-size:clamp(28px, 7vw, 56px);
+    color:#c89aff;
+    text-shadow:
+      0 0 20px #8844ff,
+      0 0 40px #8844ffaa,
+      0 0 80px #8844ff55;
+    letter-spacing:4px;
+    text-align:center;
+    margin-bottom:40px;
+  }
+  #title-screen .subtitle {
+    font-family:'Cinzel Decorative', serif;
+    font-size:clamp(14px, 3vw, 20px);
+    color:#8866cc;
+    animation:breathe 2.5s ease-in-out infinite;
+  }
+  @keyframes breathe {
+    0%,100% { opacity:0.5; transform:scale(1); }
+    50% { opacity:1; transform:scale(1.05); }
+  }
+
+  /* ── Victory Screen ── */
+  #victory-screen {
+    position:fixed; inset:0; z-index:100;
+    background:radial-gradient(ellipse at 50% 40%, #1a2a4e 0%, #0a0a2e 70%);
+    display:none; flex-direction:column;
+    align-items:center; justify-content:center;
+    pointer-events:auto;
+    transition:opacity 0.6s;
+  }
+  #victory-screen h1 {
+    font-family:'Cinzel Decorative', serif;
+    font-weight:900;
+    font-size:clamp(24px, 6vw, 48px);
+    color:#00ffcc;
+    text-shadow:
+      0 0 20px #00ffcc,
+      0 0 40px #00ffccaa;
+    margin-bottom:24px;
+  }
+  #victory-screen .stats {
+    color:#c89aff;
+    font-family:'Cinzel Decorative', serif;
+    font-size:clamp(12px, 2.5vw, 18px);
+    line-height:2;
+    text-align:center;
+    margin-bottom:32px;
+  }
+  #victory-screen .replay {
+    font-family:'Cinzel Decorative', serif;
+    font-size:clamp(14px, 3vw, 20px);
+    color:#8866cc;
+    animation:breathe 2.5s ease-in-out infinite;
+  }
+
+  /* ── Phoneme Overlay (HTML portion for mic icon / prompts) ── */
+  #phoneme-overlay {
+    position:fixed; inset:0; z-index:50;
+    display:none;
+    align-items:center; justify-content:center;
+    pointer-events:none;
+  }
+
+  /* ── Exit Button ── */
+  #exit-btn {
+    position:fixed;
+    top:max(12px, env(safe-area-inset-top, 12px));
+    right:max(12px, env(safe-area-inset-right, 12px));
+    z-index:200;
+    width:40px; height:40px;
+    background:rgba(20,10,40,0.7);
+    border:2px solid #8844ff;
+    border-radius:50%;
+    color:#c89aff;
+    font-size:20px;
+    font-weight:bold;
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer;
+    pointer-events:auto;
+    -webkit-tap-highlight-color:transparent;
+  }
+  #exit-btn:active { background:rgba(136,68,255,0.4); }
+
+  /* ── Touch Controls ── */
+  .touch-controls {
+    position:fixed;
+    z-index:90;
+    pointer-events:auto;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .touch-btn {
+    position:absolute;
+    border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    font-size:22px;
+    font-weight:bold;
+    color:rgba(200,154,255,0.7);
+    border:2px solid rgba(136,68,255,0.4);
+    background:rgba(20,10,40,0.35);
+    -webkit-tap-highlight-color:transparent;
+    pointer-events:auto;
+  }
+  .touch-btn:active, .touch-btn.active {
+    background:rgba(136,68,255,0.35);
+    border-color:rgba(136,68,255,0.7);
+  }
+
+  #btn-left {
+    width:56px; height:56px;
+    bottom:max(24px, env(safe-area-inset-bottom, 24px));
+    left:max(16px, env(safe-area-inset-left, 16px));
+  }
+  #btn-right {
+    width:56px; height:56px;
+    bottom:max(24px, env(safe-area-inset-bottom, 24px));
+    left:calc(max(16px, env(safe-area-inset-left, 16px)) + 68px);
+  }
+  #btn-jump {
+    width:64px; height:64px;
+    bottom:max(24px, env(safe-area-inset-bottom, 24px));
+    right:max(16px, env(safe-area-inset-right, 16px));
+  }
+  #btn-dash {
+    width:52px; height:52px;
+    bottom:calc(max(24px, env(safe-area-inset-bottom, 24px)) + 76px);
+    right:calc(max(16px, env(safe-area-inset-right, 16px)) + 6px);
+  }
+</style>
+</head>
+<body>
+
+<!-- Loading Screen -->
+<div id="loading-screen">
+  <div class="spinner"></div>
+  <div>Channeling magic...</div>
+</div>
+
+<!-- Title Screen -->
+<div id="title-screen">
+  <h1>Phoneme Quest</h1>
+  <div class="subtitle">Tap to Begin</div>
+</div>
+
+<!-- Victory Screen -->
+<div id="victory-screen">
+  <h1>Quest Complete!</h1>
+  <div class="stats" id="victory-stats"></div>
+  <div class="replay">Tap to Replay</div>
+</div>
+
+<!-- Phoneme Overlay (visual portion drawn on canvas; this is the container) -->
+<div id="phoneme-overlay"></div>
+
+<!-- Exit Button -->
+<div id="exit-btn">&times;</div>
+
+<!-- Touch Controls -->
+<div class="touch-controls">
+  <div class="touch-btn" id="btn-left" style="position:fixed;">&#9664;</div>
+  <div class="touch-btn" id="btn-right" style="position:fixed;">&#9654;</div>
+  <div class="touch-btn" id="btn-jump" style="position:fixed;">&#9650;</div>
+  <div class="touch-btn" id="btn-dash" style="position:fixed;">&#10040;</div>
+</div>
+
+<!-- Canvas -->
+<canvas id="game-canvas"></canvas>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// CONSTANTS & CONFIG
+// ═══════════════════════════════════════════════════════════════
+const BASE_W = 384, BASE_H = 216;
+const TILE = 24;
+const COLS = 16, ROWS = 9;
+const GRAVITY = 0.55;
+const MAX_FALL = 8;
+const RUN_SPEED = 2.2;
+const RUN_ACCEL = 0.6;
+const RUN_DECEL = 0.45;
+const JUMP_FORCE = -5.2;
+const JUMP_CUT = 0.4;
+const COYOTE_FRAMES = 6;
+const JUMP_BUFFER_FRAMES = 6;
+const DASH_SPEED = 6;
+const DASH_FRAMES = 6;
+const DASH_FREEZE_FRAMES = 2;
+const WALL_SLIDE_SPEED = 1.0;
+const WALL_JUMP_X = 3.5;
+const WALL_JUMP_Y = -4.8;
+const PHONEME_GAP = 800;
+const SPEECH_TIMEOUT = 5000;
+const AUDIO_PATH = '../01-arcane-resonance/audio/';
+
+// Colors
+const COL_BG_DARK   = '#0a0a2e';
+const COL_BG_MID    = '#1a1a4e';
+const COL_PURPLE    = '#8844ff';
+const COL_CYAN      = '#00ffcc';
+const COL_GOLD      = '#ffcc33';
+const COL_RED       = '#ff4466';
+
+// ═══════════════════════════════════════════════════════════════
+// WORD BANK
+// ═══════════════════════════════════════════════════════════════
+const WORDS = [
+  { word:'pop', phonemes:[{sound:'p',file:'193284__margo_heston__pp.wav',label:'P'},{sound:'o',file:'193285__margo_heston__ohh.wav',label:'O'},{sound:'p',file:'193284__margo_heston__pp.wav',label:'P'}]},
+  { word:'top', phonemes:[{sound:'t',file:'193273__margo_heston__tt.wav',label:'T'},{sound:'o',file:'193285__margo_heston__ohh.wav',label:'O'},{sound:'p',file:'193284__margo_heston__pp.wav',label:'P'}]},
+  { word:'mop', phonemes:[{sound:'m',file:'193281__margo_heston__mm.wav',label:'M'},{sound:'o',file:'193285__margo_heston__ohh.wav',label:'O'},{sound:'p',file:'193284__margo_heston__pp.wav',label:'P'}]},
+  { word:'dog', phonemes:[{sound:'d',file:'193268__margo_heston__d.wav',label:'D'},{sound:'o',file:'193285__margo_heston__ohh.wav',label:'O'},{sound:'g',file:'193279__margo_heston__g.wav',label:'G'}]},
+  { word:'log', phonemes:[{sound:'l',file:'193282__margo_heston__ll.wav',label:'L'},{sound:'o',file:'193285__margo_heston__ohh.wav',label:'O'},{sound:'g',file:'193279__margo_heston__g.wav',label:'G'}]},
+  { word:'gum', phonemes:[{sound:'g',file:'193279__margo_heston__g.wav',label:'G'},{sound:'u',file:'193318__margo_heston__uh.wav',label:'U'},{sound:'m',file:'193281__margo_heston__mm.wav',label:'M'}]},
+  { word:'tug', phonemes:[{sound:'t',file:'193273__margo_heston__tt.wav',label:'T'},{sound:'u',file:'193318__margo_heston__uh.wav',label:'U'},{sound:'g',file:'193279__margo_heston__g.wav',label:'G'}]},
+  { word:'mud', phonemes:[{sound:'m',file:'193281__margo_heston__mm.wav',label:'M'},{sound:'u',file:'193318__margo_heston__uh.wav',label:'U'},{sound:'d',file:'193268__margo_heston__d.wav',label:'D'}]},
+  { word:'tip', phonemes:[{sound:'t',file:'193273__margo_heston__tt.wav',label:'T'},{sound:'i',file:'193277__margo_heston__ih.wav',label:'I'},{sound:'p',file:'193284__margo_heston__pp.wav',label:'P'}]},
+  { word:'dig', phonemes:[{sound:'d',file:'193268__margo_heston__d.wav',label:'D'},{sound:'i',file:'193277__margo_heston__ih.wav',label:'I'},{sound:'g',file:'193279__margo_heston__g.wav',label:'G'}]},
+  { word:'kid', phonemes:[{sound:'k',file:'193283__margo_heston__k.wav',label:'K'},{sound:'i',file:'193277__margo_heston__ih.wav',label:'I'},{sound:'d',file:'193268__margo_heston__d.wav',label:'D'}]},
+  { word:'dim', phonemes:[{sound:'d',file:'193268__margo_heston__d.wav',label:'D'},{sound:'i',file:'193277__margo_heston__ih.wav',label:'I'},{sound:'m',file:'193281__margo_heston__mm.wav',label:'M'}]},
+];
+
+// ═══════════════════════════════════════════════════════════════
+// ROOM TILE MAPS (5 rooms, 16x9 each)
+// 0=air, 1=solid, 2=orb_cluster, 3=locked_door, 4=spike, 5=moving_platform
+// ═══════════════════════════════════════════════════════════════
+const ROOM_MAPS = [
+  // Room 0 — Learning Room: gentle intro, one orb, flat terrain with small gap
+  [
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [1,1,1,1,1,1,0,0,0,1,1,1,1,1,1,3],
+  ],
+  // Room 1 — Easy: two levels, 2 orbs, wall section, locked door
+  [
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,1],
+    [0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,1],
+    [0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,1],
+    [0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0],
+    [1,1,1,1,1,0,0,0,0,1,1,1,1,1,1,3],
+  ],
+  // Room 2 — Medium: spike pit, elevated platforms, wall-climb, 2 orbs
+  [
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,1],
+    [0,0,0,0,2,0,0,0,0,0,0,0,1,1,0,1],
+    [0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [1,1,1,4,4,4,4,1,1,1,0,0,1,1,1,3],
+  ],
+  // Room 3 — Hard: dash-required gap, wall-climb gauntlet, 2 orbs in tricky spots
+  [
+    [0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,1,0,2,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,1,0,1,0],
+    [0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,1,1,0,0,0,0,0,0,0,0,0,0,1,1],
+    [0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0],
+    [1,1,1,1,4,4,4,4,4,4,4,1,1,1,1,3],
+  ],
+  // Room 4 — Victory: open celebratory room
+  [
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  ],
+];
+
+const ROOM_NAMES = [
+  'Learning Room',
+  'Practice Room 1',
+  'Practice Room 2',
+  'Challenge Room',
+  'Victory Chamber',
+];
+
+// ═══════════════════════════════════════════════════════════════
+// DOM REFERENCES
+// ═══════════════════════════════════════════════════════════════
+const canvas = document.getElementById('game-canvas');
+const ctx = canvas.getContext('2d');
+const loadingScreen = document.getElementById('loading-screen');
+const titleScreen = document.getElementById('title-screen');
+const victoryScreen = document.getElementById('victory-screen');
+const victoryStats = document.getElementById('victory-stats');
+const phonemeOverlay = document.getElementById('phoneme-overlay');
+const exitBtn = document.getElementById('exit-btn');
+
+canvas.width = BASE_W;
+canvas.height = BASE_H;
+ctx.imageSmoothingEnabled = false;
+
+// ═══════════════════════════════════════════════════════════════
+// CANVAS SCALING
+// ═══════════════════════════════════════════════════════════════
+let canvasScale = 1;
+let canvasOffsetX = 0;
+let canvasOffsetY = 0;
+
+function resizeCanvas() {
+  const winW = window.innerWidth;
+  const winH = window.innerHeight;
+  const scaleX = winW / BASE_W;
+  const scaleY = winH / BASE_H;
+  canvasScale = Math.min(scaleX, scaleY);
+  const drawW = Math.floor(BASE_W * canvasScale);
+  const drawH = Math.floor(BASE_H * canvasScale);
+  canvasOffsetX = Math.floor((winW - drawW) / 2);
+  canvasOffsetY = Math.floor((winH - drawH) / 2);
+  canvas.style.width = drawW + 'px';
+  canvas.style.height = drawH + 'px';
+  canvas.style.left = canvasOffsetX + 'px';
+  canvas.style.top = canvasOffsetY + 'px';
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// ═══════════════════════════════════════════════════════════════
+// AUDIO SYSTEM
+// ═══════════════════════════════════════════════════════════════
+let audioCtx = null;
+const audioBufferCache = {};
+
+function ensureAudioCtx() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+  return audioCtx;
+}
+
+async function loadAudioBuffer(filename) {
+  if (audioBufferCache[filename]) return audioBufferCache[filename];
+  const ac = ensureAudioCtx();
+  try {
+    const resp = await fetch(AUDIO_PATH + filename);
+    const arrayBuf = await resp.arrayBuffer();
+    const audioBuf = await ac.decodeAudioData(arrayBuf);
+    audioBufferCache[filename] = audioBuf;
+    return audioBuf;
+  } catch(e) {
+    console.warn('Failed to load audio:', filename, e);
+    return null;
+  }
+}
+
+function playBuffer(buffer, volume) {
+  if (!buffer) return;
+  const ac = ensureAudioCtx();
+  const src = ac.createBufferSource();
+  const gain = ac.createGain();
+  gain.gain.value = volume || 1.0;
+  src.buffer = buffer;
+  src.connect(gain);
+  gain.connect(ac.destination);
+  src.start(0);
+  return src;
+}
+
+async function playPhonemeSequence(phonemes) {
+  for (let i = 0; i < phonemes.length; i++) {
+    const buf = await loadAudioBuffer(phonemes[i].file);
+    if (buf) {
+      playBuffer(buf, 1.0);
+      await new Promise(r => setTimeout(r, (buf.duration * 1000) + PHONEME_GAP));
+    } else {
+      await new Promise(r => setTimeout(r, 300 + PHONEME_GAP));
+    }
+  }
+}
+
+// Procedural SFX
+function playSfx(type) {
+  const ac = ensureAudioCtx();
+  const now = ac.currentTime;
+  const osc = ac.createOscillator();
+  const gain = ac.createGain();
+  osc.connect(gain);
+  gain.connect(ac.destination);
+
+  switch(type) {
+    case 'jump':
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(250, now);
+      osc.frequency.exponentialRampToValueAtTime(500, now + 0.1);
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+      osc.start(now); osc.stop(now + 0.15);
+      break;
+    case 'dash':
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(150, now);
+      osc.frequency.exponentialRampToValueAtTime(80, now + 0.12);
+      gain.gain.setValueAtTime(0.1, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+      osc.start(now); osc.stop(now + 0.12);
+      break;
+    case 'death':
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(400, now);
+      osc.frequency.exponentialRampToValueAtTime(60, now + 0.4);
+      gain.gain.setValueAtTime(0.12, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+      osc.start(now); osc.stop(now + 0.4);
+      break;
+    case 'collect':
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(600, now);
+      osc.frequency.exponentialRampToValueAtTime(1200, now + 0.15);
+      gain.gain.setValueAtTime(0.1, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+      osc.start(now); osc.stop(now + 0.2);
+      break;
+    case 'success':
+      // Ascending 3-note chime
+      [0, 0.12, 0.24].forEach((delay, i) => {
+        const o = ac.createOscillator();
+        const g = ac.createGain();
+        o.type = 'sine';
+        o.frequency.value = [523, 659, 784][i]; // C5, E5, G5
+        o.connect(g); g.connect(ac.destination);
+        g.gain.setValueAtTime(0.1, now + delay);
+        g.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.3);
+        o.start(now + delay); o.stop(now + delay + 0.3);
+      });
+      return; // don't start/stop the main osc
+    case 'fail':
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(120, now);
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+      osc.start(now); osc.stop(now + 0.25);
+      break;
+    case 'door':
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(300, now);
+      osc.frequency.exponentialRampToValueAtTime(800, now + 0.3);
+      gain.gain.setValueAtTime(0.1, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+      osc.start(now); osc.stop(now + 0.4);
+      break;
+    default:
+      osc.stop(now);
+      return;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SPEECH RECOGNITION
+// ═══════════════════════════════════════════════════════════════
+// const SPEECHACE_API_KEY = ''; // Hook for SpeechAce API swap
+
+const SpeechEvaluator = {
+  async evaluate(expectedWord) {
+    return new Promise((resolve) => {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        // Fallback: auto-accept after timeout (for browsers without speech API)
+        console.warn('SpeechRecognition not available, auto-accepting');
+        setTimeout(() => resolve({ success: true, recognized: expectedWord, score: 1.0 }), 1500);
+        return;
+      }
+
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'en-US';
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 5;
+
+      let resolved = false;
+      const timeoutId = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          try { recognition.stop(); } catch(e) {}
+          resolve({ success: false, recognized: '', score: 0, failType: 'timeout' });
+        }
+      }, SPEECH_TIMEOUT);
+
+      recognition.onresult = (event) => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(timeoutId);
+        let bestMatch = '';
+        let found = false;
+        for (let i = 0; i < event.results[0].length; i++) {
+          const transcript = event.results[0][i].transcript.toLowerCase().trim();
+          if (!bestMatch) bestMatch = transcript;
+          if (transcript.includes(expectedWord)) {
+            found = true;
+            bestMatch = transcript;
+            break;
+          }
+        }
+        resolve({
+          success: found,
+          recognized: bestMatch,
+          score: found ? 1.0 : 0,
+          failType: found ? null : 'wrong',
+        });
+      };
+
+      recognition.onerror = (event) => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(timeoutId);
+        resolve({ success: false, recognized: '', score: 0, failType: 'error' });
+      };
+
+      recognition.onend = () => {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timeoutId);
+          resolve({ success: false, recognized: '', score: 0, failType: 'timeout' });
+        }
+      };
+
+      try {
+        recognition.start();
+      } catch(e) {
+        resolved = true;
+        clearTimeout(timeoutId);
+        resolve({ success: false, recognized: '', score: 0, failType: 'error' });
+      }
+    });
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════
+// INPUT SYSTEM
+// ═══════════════════════════════════════════════════════════════
+const input = {
+  left: false, right: false,
+  jump: false, jumpPressed: false, jumpReleased: false,
+  dash: false, dashPressed: false,
+  _jumpWasDown: false,
+  _dashWasDown: false,
+};
+
+// Keyboard
+const keysDown = {};
+window.addEventListener('keydown', (e) => {
+  keysDown[e.code] = true;
+  if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) {
+    e.preventDefault();
+  }
+});
+window.addEventListener('keyup', (e) => {
+  keysDown[e.code] = false;
+});
+
+// Touch tracking
+const activeTouches = {}; // touchId -> buttonId
+
+function getTouchButton(x, y) {
+  const els = ['btn-left','btn-right','btn-jump','btn-dash'];
+  for (const id of els) {
+    const el = document.getElementById(id);
+    const rect = el.getBoundingClientRect();
+    // Expand hit area by 8px
+    if (x >= rect.left - 8 && x <= rect.right + 8 &&
+        y >= rect.top - 8 && y <= rect.bottom + 8) {
+      return id;
+    }
+  }
+  return null;
+}
+
+const touchBtnState = { 'btn-left':false, 'btn-right':false, 'btn-jump':false, 'btn-dash':false };
+
+function updateTouchBtnState() {
+  // Reset all
+  for (const k in touchBtnState) touchBtnState[k] = false;
+  // Set active ones
+  for (const tid in activeTouches) {
+    const bid = activeTouches[tid];
+    if (bid) touchBtnState[bid] = true;
+  }
+  // Visual feedback
+  for (const k in touchBtnState) {
+    const el = document.getElementById(k);
+    if (el) {
+      if (touchBtnState[k]) el.classList.add('active');
+      else el.classList.remove('active');
+    }
+  }
+}
+
+window.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  ensureAudioCtx();
+  for (const touch of e.changedTouches) {
+    const btn = getTouchButton(touch.clientX, touch.clientY);
+    activeTouches[touch.identifier] = btn;
+  }
+  updateTouchBtnState();
+}, { passive: false });
+
+window.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  for (const touch of e.changedTouches) {
+    const btn = getTouchButton(touch.clientX, touch.clientY);
+    activeTouches[touch.identifier] = btn;
+  }
+  updateTouchBtnState();
+}, { passive: false });
+
+window.addEventListener('touchend', (e) => {
+  e.preventDefault();
+  for (const touch of e.changedTouches) {
+    delete activeTouches[touch.identifier];
+  }
+  updateTouchBtnState();
+}, { passive: false });
+
+window.addEventListener('touchcancel', (e) => {
+  for (const touch of e.changedTouches) {
+    delete activeTouches[touch.identifier];
+  }
+  updateTouchBtnState();
+});
+
+function pollInput() {
+  // Combine keyboard + touch
+  const leftDown = keysDown['ArrowLeft'] || keysDown['KeyA'] || touchBtnState['btn-left'];
+  const rightDown = keysDown['ArrowRight'] || keysDown['KeyD'] || touchBtnState['btn-right'];
+  const jumpDown = keysDown['Space'] || keysDown['KeyZ'] || keysDown['ArrowUp'] || touchBtnState['btn-jump'];
+  const dashDown = keysDown['KeyX'] || keysDown['ShiftLeft'] || keysDown['ShiftRight'] || touchBtnState['btn-dash'];
+
+  input.left = leftDown;
+  input.right = rightDown;
+
+  input.jumpPressed = jumpDown && !input._jumpWasDown;
+  input.jumpReleased = !jumpDown && input._jumpWasDown;
+  input.jump = jumpDown;
+  input._jumpWasDown = jumpDown;
+
+  input.dashPressed = dashDown && !input._dashWasDown;
+  input.dash = dashDown;
+  input._dashWasDown = dashDown;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PARTICLE SYSTEM
+// ═══════════════════════════════════════════════════════════════
+const particles = [];
+
+function spawnParticle(x, y, vx, vy, life, color, size) {
+  particles.push({ x, y, vx, vy, life, maxLife: life, color, size: size || 2 });
+}
+
+function spawnBurst(x, y, count, color, speed, life) {
+  for (let i = 0; i < count; i++) {
+    const angle = (Math.PI * 2 / count) * i + Math.random() * 0.3;
+    const spd = speed * (0.5 + Math.random() * 0.5);
+    spawnParticle(x, y, Math.cos(angle) * spd, Math.sin(angle) * spd, life || 30, color, 1 + Math.random() * 2);
+  }
+}
+
+function updateParticles() {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += 0.03; // slight gravity on particles
+    p.life--;
+    if (p.life <= 0) {
+      particles.splice(i, 1);
+    }
+  }
+}
+
+function drawParticles() {
+  for (const p of particles) {
+    const alpha = Math.max(0, p.life / p.maxLife);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(Math.floor(p.x), Math.floor(p.y), Math.ceil(p.size), Math.ceil(p.size));
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AMBIENT MOTES (always present floating particles)
+// ═══════════════════════════════════════════════════════════════
+const ambientMotes = [];
+function initAmbientMotes() {
+  const moteColors = [COL_PURPLE, COL_CYAN, COL_GOLD, '#c89aff'];
+  for (let i = 0; i < 20; i++) {
+    ambientMotes.push({
+      x: Math.random() * BASE_W,
+      y: Math.random() * BASE_H,
+      vx: (Math.random() - 0.5) * 0.2,
+      vy: -0.15 - Math.random() * 0.3,
+      size: 1 + Math.random() * 1.5,
+      color: moteColors[Math.floor(Math.random() * moteColors.length)],
+      phase: Math.random() * Math.PI * 2,
+    });
+  }
+}
+
+function updateAmbientMotes(frame) {
+  for (const m of ambientMotes) {
+    m.x += m.vx + Math.sin(frame * 0.02 + m.phase) * 0.1;
+    m.y += m.vy;
+    if (m.y < -5) { m.y = BASE_H + 5; m.x = Math.random() * BASE_W; }
+    if (m.x < -5) m.x = BASE_W + 5;
+    if (m.x > BASE_W + 5) m.x = -5;
+  }
+}
+
+function drawAmbientMotes(frame) {
+  for (const m of ambientMotes) {
+    const alpha = 0.3 + 0.2 * Math.sin(frame * 0.03 + m.phase);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = m.color;
+    ctx.fillRect(Math.floor(m.x), Math.floor(m.y), Math.ceil(m.size), Math.ceil(m.size));
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BACKGROUND RENDERING (parallax layers)
+// ═══════════════════════════════════════════════════════════════
+const bgStars = [];
+function initBgStars() {
+  for (let i = 0; i < 60; i++) {
+    bgStars.push({
+      x: Math.random() * BASE_W * 1.3,
+      y: Math.random() * BASE_H * 0.7,
+      size: Math.random() < 0.3 ? 2 : 1,
+      brightness: 0.3 + Math.random() * 0.5,
+      twinkleSpeed: 0.02 + Math.random() * 0.03,
+      phase: Math.random() * Math.PI * 2,
+    });
+  }
+}
+
+const bgMountains = [];
+function initBgMountains() {
+  // Generate mountain silhouette points
+  let x = -20;
+  while (x < BASE_W + 40) {
+    const w = 40 + Math.random() * 60;
+    const h = 30 + Math.random() * 50;
+    bgMountains.push({ x, w, h });
+    x += w * 0.6 + Math.random() * 20;
+  }
+}
+
+function drawBackground(frame, roomIdx) {
+  // Layer 0: gradient fill
+  const grad = ctx.createLinearGradient(0, 0, 0, BASE_H);
+  grad.addColorStop(0, COL_BG_DARK);
+  grad.addColorStop(1, COL_BG_MID);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, BASE_W, BASE_H);
+
+  // Layer 1: stars with slight parallax
+  const parallax1 = roomIdx * -10;
+  for (const s of bgStars) {
+    const sx = ((s.x + parallax1) % (BASE_W * 1.3) + BASE_W * 1.3) % (BASE_W * 1.3) - BASE_W * 0.15;
+    const alpha = s.brightness * (0.6 + 0.4 * Math.sin(frame * s.twinkleSpeed + s.phase));
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(Math.floor(sx), Math.floor(s.y), s.size, s.size);
+  }
+  ctx.globalAlpha = 1;
+
+  // Layer 2: distant mountain silhouettes
+  const parallax2 = roomIdx * -25;
+  ctx.fillStyle = '#12103a';
+  for (const m of bgMountains) {
+    const mx = ((m.x + parallax2) % (BASE_W + 80) + BASE_W + 80) % (BASE_W + 80) - 40;
+    ctx.beginPath();
+    ctx.moveTo(mx, BASE_H);
+    ctx.lineTo(mx + m.w / 2, BASE_H - m.h);
+    ctx.lineTo(mx + m.w, BASE_H);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TILE RENDERING
+// ═══════════════════════════════════════════════════════════════
+function drawTile(tileType, tx, ty, frame) {
+  const x = tx * TILE;
+  const y = ty * TILE;
+
+  switch(tileType) {
+    case 1: // Solid
+      ctx.fillStyle = '#2a2a5e';
+      ctx.fillRect(x, y, TILE, TILE);
+      // Top edge highlight
+      ctx.fillStyle = '#3a3a7e';
+      ctx.fillRect(x, y, TILE, 2);
+      // Left edge
+      ctx.fillStyle = '#333370';
+      ctx.fillRect(x, y, 2, TILE);
+      // Bottom shadow
+      ctx.fillStyle = '#1a1a40';
+      ctx.fillRect(x, y + TILE - 2, TILE, 2);
+      // Right shadow
+      ctx.fillRect(x + TILE - 2, y, 2, TILE);
+      break;
+
+    case 2: // Orb cluster (drawn in game objects pass, but mark tile area slightly)
+      break;
+
+    case 3: // Locked door
+      // Drawn as glowing barrier in drawDoor()
+      break;
+
+    case 4: // Spike
+      ctx.fillStyle = COL_RED;
+      // Draw triangles across the tile
+      for (let sx = 0; sx < TILE; sx += 8) {
+        ctx.beginPath();
+        ctx.moveTo(x + sx, y + TILE);
+        ctx.lineTo(x + sx + 4, y + 6);
+        ctx.lineTo(x + sx + 8, y + TILE);
+        ctx.closePath();
+        ctx.fill();
+      }
+      // Glow
+      ctx.fillStyle = 'rgba(255,68,102,0.15)';
+      ctx.fillRect(x, y, TILE, TILE);
+      break;
+
+    case 5: // Moving platform
+      ctx.fillStyle = '#4a3a8e';
+      ctx.fillRect(x, y, TILE, 8);
+      ctx.fillStyle = '#6a5aae';
+      ctx.fillRect(x, y, TILE, 2);
+      break;
+  }
+}
+
+function drawTileMap(map) {
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const t = map[r][c];
+      if (t === 1 || t === 4 || t === 5) {
+        drawTile(t, c, r, gameState.frame);
+      }
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// COLLISION SYSTEM
+// ═══════════════════════════════════════════════════════════════
+function isSolid(map, col, row) {
+  if (col < 0 || col >= COLS || row < 0) return false;
+  if (row >= ROWS) return true; // below map = solid
+  const t = map[row][col];
+  return t === 1;
+}
+
+function isDoor(map, col, row) {
+  if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return false;
+  return map[row][col] === 3;
+}
+
+function isSpike(map, col, row) {
+  if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return false;
+  return map[row][col] === 4;
+}
+
+// Check AABB overlap with tile grid. Returns collision info.
+function collideTiles(map, x, y, w, h) {
+  const result = { grounded: false, wallLeft: false, wallRight: false, ceiling: false, spike: false, door: false };
+
+  // Tiles the AABB overlaps
+  const left = Math.floor(x / TILE);
+  const right = Math.floor((x + w - 0.01) / TILE);
+  const top = Math.floor(y / TILE);
+  const bottom = Math.floor((y + h - 0.01) / TILE);
+
+  for (let r = top; r <= bottom; r++) {
+    for (let c = left; c <= right; c++) {
+      if (isSolid(map, c, r)) {
+        // Determine overlap direction would require knowing motion direction
+        // We just report that overlap exists
+      }
+      if (isSpike(map, c, r)) result.spike = true;
+      if (isDoor(map, c, r)) result.door = true;
+    }
+  }
+
+  // Ground check: one pixel below feet
+  {
+    const footY = y + h + 1;
+    const footRow = Math.floor(footY / TILE);
+    const leftCol = Math.floor(x / TILE);
+    const rightCol = Math.floor((x + w - 0.01) / TILE);
+    for (let c = leftCol; c <= rightCol; c++) {
+      if (isSolid(map, c, footRow)) result.grounded = true;
+    }
+  }
+
+  // Wall check: one pixel to each side
+  {
+    const topRow = Math.floor((y + 2) / TILE);
+    const bottomRow = Math.floor((y + h - 2) / TILE);
+    // Left wall
+    const leftCol = Math.floor((x - 1) / TILE);
+    for (let r = topRow; r <= bottomRow; r++) {
+      if (isSolid(map, leftCol, r)) { result.wallLeft = true; break; }
+    }
+    // Right wall
+    const rightCol = Math.floor((x + w + 1) / TILE);
+    for (let r = topRow; r <= bottomRow; r++) {
+      if (isSolid(map, rightCol, r)) { result.wallRight = true; break; }
+    }
+  }
+
+  return result;
+}
+
+// Move and resolve collisions. Horizontal then vertical.
+function moveAndCollide(map, entity, dx, dy) {
+  const result = { grounded: false, wallLeft: false, wallRight: false, ceiling: false, spike: false, door: false };
+
+  // --- Horizontal ---
+  entity.x += dx;
+  // Resolve horizontal
+  const leftCol = Math.floor(entity.x / TILE);
+  const rightCol = Math.floor((entity.x + entity.w - 0.01) / TILE);
+  const topRow = Math.floor(entity.y / TILE);
+  const bottomRow = Math.floor((entity.y + entity.h - 0.01) / TILE);
+
+  for (let r = topRow; r <= bottomRow; r++) {
+    for (let c = leftCol; c <= rightCol; c++) {
+      if (isSolid(map, c, r)) {
+        if (dx > 0) {
+          entity.x = c * TILE - entity.w;
+          result.wallRight = true;
+        } else if (dx < 0) {
+          entity.x = (c + 1) * TILE;
+          result.wallLeft = true;
+        }
+      }
+      if (isDoor(map, c, r)) {
+        const room = gameState.rooms[gameState.currentRoom];
+        if (!room.doorOpen) {
+          // Push back
+          if (dx > 0) entity.x = c * TILE - entity.w;
+          else if (dx < 0) entity.x = (c + 1) * TILE;
+          result.door = true;
+        }
+      }
+    }
+  }
+
+  // --- Vertical ---
+  entity.y += dy;
+  const leftCol2 = Math.floor(entity.x / TILE);
+  const rightCol2 = Math.floor((entity.x + entity.w - 0.01) / TILE);
+  const topRow2 = Math.floor(entity.y / TILE);
+  const bottomRow2 = Math.floor((entity.y + entity.h - 0.01) / TILE);
+
+  for (let r = topRow2; r <= bottomRow2; r++) {
+    for (let c = leftCol2; c <= rightCol2; c++) {
+      if (isSolid(map, c, r)) {
+        if (dy > 0) {
+          entity.y = r * TILE - entity.h;
+          result.grounded = true;
+        } else if (dy < 0) {
+          entity.y = (r + 1) * TILE;
+          result.ceiling = true;
+        }
+      }
+      if (isDoor(map, c, r)) {
+        const room = gameState.rooms[gameState.currentRoom];
+        if (!room.doorOpen) {
+          if (dy > 0) entity.y = r * TILE - entity.h;
+          else if (dy < 0) entity.y = (r + 1) * TILE;
+        }
+      }
+    }
+  }
+
+  // Spike check
+  {
+    const l = Math.floor(entity.x / TILE);
+    const r2 = Math.floor((entity.x + entity.w - 0.01) / TILE);
+    const t = Math.floor(entity.y / TILE);
+    const b = Math.floor((entity.y + entity.h - 0.01) / TILE);
+    for (let r = t; r <= b; r++) {
+      for (let c = l; c <= r2; c++) {
+        if (isSpike(map, c, r)) result.spike = true;
+      }
+    }
+  }
+
+  // Wall proximity checks for wall slide (need to be touching wall while airborne)
+  if (!result.grounded) {
+    const wr = collideTiles(map, entity.x, entity.y, entity.w, entity.h);
+    result.wallLeft = result.wallLeft || wr.wallLeft;
+    result.wallRight = result.wallRight || wr.wallRight;
+  }
+
+  return result;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PLAYER
+// ═══════════════════════════════════════════════════════════════
+function createPlayer(x, y) {
+  return {
+    x, y,
+    w: 12, h: 16,
+    vx: 0, vy: 0,
+    facing: 1, // 1 = right, -1 = left
+    state: 'idle', // idle, run, jump, fall, dash, wall_slide, wall_jump
+    grounded: false,
+    coyoteTimer: 0,
+    jumpBufferTimer: 0,
+    dashTimer: 0,
+    dashFreezeTimer: 0,
+    dashDirX: 0,
+    dashDirY: 0,
+    hasDash: true,
+    wallDir: 0, // -1 left wall, 1 right wall
+    wallJumpTimer: 0, // frames of forced x velocity after wall jump
+    animFrame: 0,
+    animTimer: 0,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PLAYER SPRITE (procedural pixel art — hooded robe)
+// ═══════════════════════════════════════════════════════════════
+function drawPlayer(p, frame) {
+  const x = Math.floor(p.x);
+  const y = Math.floor(p.y);
+  const f = p.facing;
+
+  // Color palette
+  const robeMain = '#5533aa';
+  const robeDark = '#3a2277';
+  const robeLight = '#7755cc';
+  const skinColor = '#e8c89a';
+  const hoodShadow = '#2a1155';
+  const eyeColor = COL_CYAN;
+
+  ctx.save();
+
+  // If facing left, flip
+  if (f === -1) {
+    ctx.translate(x + p.w, y);
+    ctx.scale(-1, 1);
+  } else {
+    ctx.translate(x, y);
+  }
+
+  // Hood (top 6 rows of 12-wide sprite)
+  // Row 0: empty sides, hood top
+  ctx.fillStyle = robeMain;
+  ctx.fillRect(3, 0, 6, 1); // hood top
+
+  // Row 1: wider hood
+  ctx.fillRect(2, 1, 8, 1);
+
+  // Row 2: hood with shadow inside
+  ctx.fillRect(1, 2, 10, 1);
+  ctx.fillStyle = hoodShadow;
+  ctx.fillRect(3, 2, 6, 1);
+
+  // Row 3: face row with hood sides
+  ctx.fillStyle = robeMain;
+  ctx.fillRect(1, 3, 2, 1);
+  ctx.fillRect(9, 3, 2, 1);
+  ctx.fillStyle = skinColor;
+  ctx.fillRect(3, 3, 6, 1);
+  // Eye
+  ctx.fillStyle = eyeColor;
+  ctx.fillRect(7, 3, 2, 1);
+
+  // Row 4: lower face
+  ctx.fillStyle = robeMain;
+  ctx.fillRect(1, 4, 2, 1);
+  ctx.fillRect(9, 4, 2, 1);
+  ctx.fillStyle = skinColor;
+  ctx.fillRect(3, 4, 6, 1);
+
+  // Row 5: chin / robe neckline
+  ctx.fillStyle = robeMain;
+  ctx.fillRect(2, 5, 8, 1);
+
+  // Robe body (rows 6-13)
+  ctx.fillStyle = robeMain;
+  ctx.fillRect(2, 6, 8, 1);
+  ctx.fillRect(1, 7, 10, 1);
+  ctx.fillRect(1, 8, 10, 1);
+  ctx.fillRect(1, 9, 10, 1);
+  ctx.fillRect(1, 10, 10, 1);
+  ctx.fillRect(1, 11, 10, 1);
+
+  // Robe bottom / legs
+  ctx.fillRect(2, 12, 3, 1);
+  ctx.fillRect(7, 12, 3, 1);
+
+  // Run animation: alternate leg positions
+  if (p.state === 'run') {
+    const legFrame = Math.floor(frame / 6) % 2;
+    ctx.fillStyle = robeDark;
+    if (legFrame === 0) {
+      ctx.fillRect(2, 13, 3, 2);
+      ctx.fillRect(8, 13, 2, 1);
+    } else {
+      ctx.fillRect(2, 13, 2, 1);
+      ctx.fillRect(7, 13, 3, 2);
+    }
+  } else if (p.state === 'jump' || p.state === 'wall_jump') {
+    ctx.fillStyle = robeDark;
+    ctx.fillRect(2, 13, 3, 1);
+    ctx.fillRect(7, 13, 3, 1);
+  } else if (p.state === 'fall' || p.state === 'wall_slide') {
+    ctx.fillStyle = robeDark;
+    ctx.fillRect(1, 13, 4, 2);
+    ctx.fillRect(7, 13, 4, 2);
+  } else if (p.state === 'dash') {
+    // Stretched robe during dash
+    ctx.fillStyle = robeLight;
+    ctx.fillRect(1, 12, 10, 2);
+  } else {
+    // Idle legs
+    ctx.fillStyle = robeDark;
+    ctx.fillRect(2, 13, 3, 2);
+    ctx.fillRect(7, 13, 3, 2);
+  }
+
+  // Arm highlight (on facing side)
+  ctx.fillStyle = robeLight;
+  ctx.fillRect(9, 7, 2, 3);
+
+  // Dash flash effect
+  if (p.state === 'dash') {
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = COL_CYAN;
+    ctx.fillRect(0, 0, p.w, p.h);
+    ctx.globalAlpha = 1;
+  }
+
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// GAME OBJECTS RENDERING
+// ═══════════════════════════════════════════════════════════════
+function drawOrbCluster(x, y, frame, collected) {
+  if (collected) return;
+  const cx = x * TILE + TILE / 2;
+  const cy = y * TILE + TILE / 2;
+  const pulse = Math.sin(frame * 0.06) * 2;
+
+  // Outer glow
+  ctx.globalAlpha = 0.15 + Math.sin(frame * 0.04) * 0.05;
+  ctx.fillStyle = COL_PURPLE;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 12 + pulse, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Main orb
+  ctx.globalAlpha = 0.8;
+  ctx.fillStyle = COL_PURPLE;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 6 + pulse * 0.3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Inner orbs
+  const colors = [COL_CYAN, COL_GOLD, '#ff88ff'];
+  for (let i = 0; i < 3; i++) {
+    const angle = (frame * 0.04) + (i * Math.PI * 2 / 3);
+    const ox = cx + Math.cos(angle) * (4 + pulse * 0.2);
+    const oy = cy + Math.sin(angle) * (4 + pulse * 0.2);
+    ctx.fillStyle = colors[i];
+    ctx.globalAlpha = 0.7;
+    ctx.beginPath();
+    ctx.arc(ox, oy, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.globalAlpha = 1;
+}
+
+function drawDoor(x, y, frame, open) {
+  const px = x * TILE;
+  const py = y * TILE;
+
+  if (open) {
+    // Open door: dim outline
+    ctx.globalAlpha = 0.2;
+    ctx.fillStyle = COL_CYAN;
+    ctx.fillRect(px + 2, py, TILE - 4, TILE);
+    ctx.globalAlpha = 1;
+    return;
+  }
+
+  // Closed door: glowing magical barrier
+  const pulse = Math.sin(frame * 0.08) * 0.15;
+  ctx.globalAlpha = 0.5 + pulse;
+  ctx.fillStyle = COL_PURPLE;
+  ctx.fillRect(px, py, TILE, TILE);
+
+  // Rune-like pattern
+  ctx.fillStyle = COL_GOLD;
+  ctx.globalAlpha = 0.6 + pulse;
+  ctx.fillRect(px + 4, py + 2, TILE - 8, 2);
+  ctx.fillRect(px + 4, py + TILE - 4, TILE - 8, 2);
+  ctx.fillRect(px + TILE / 2 - 1, py + 4, 2, TILE - 8);
+
+  // Edge glow
+  ctx.fillStyle = COL_GOLD;
+  ctx.globalAlpha = 0.3 + pulse;
+  ctx.fillRect(px - 1, py, 1, TILE);
+  ctx.fillRect(px + TILE, py, 1, TILE);
+
+  ctx.globalAlpha = 1;
+}
+
+function drawKey(x, y, frame) {
+  // Small floating key icon
+  const bob = Math.sin(frame * 0.08) * 2;
+  const ky = y + bob;
+  ctx.fillStyle = COL_GOLD;
+  // Key head (circle approximation)
+  ctx.fillRect(x, ky, 4, 4);
+  ctx.fillRect(x + 1, ky - 1, 2, 1);
+  ctx.fillRect(x + 1, ky + 4, 2, 1);
+  // Key shaft
+  ctx.fillRect(x + 4, ky + 1, 5, 2);
+  // Key teeth
+  ctx.fillRect(x + 7, ky + 3, 2, 1);
+  ctx.fillRect(x + 9, ky + 2, 1, 2);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// HUD
+// ═══════════════════════════════════════════════════════════════
+function drawHUD(keys, keysNeeded, roomName) {
+  // Key count
+  drawKey(4, 4, gameState.frame);
+  ctx.fillStyle = COL_GOLD;
+  ctx.font = 'bold 10px monospace';
+  ctx.textBaseline = 'top';
+  ctx.fillText(keys + '/' + keysNeeded, 18, 4);
+
+  // Room name
+  ctx.fillStyle = '#8866cc';
+  ctx.font = '8px monospace';
+  ctx.fillText(roomName, 4, 18);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PHONEME BLENDING OVERLAY (drawn on canvas)
+// ═══════════════════════════════════════════════════════════════
+const blendState = {
+  active: false,
+  word: null,
+  phase: 'intro', // intro, playing, listening, success, fail, retry, merge
+  bubbles: [], // {x, y, label, scale, alpha, revealed}
+  promptText: '',
+  promptAlpha: 0,
+  micPulse: 0,
+  showMic: false,
+  mergeProgress: 0, // 0..1 for merge animation
+  resultText: '',
+  resultAlpha: 0,
+  keyAnim: 0,
+  isLearningRoom: false,
+  tutorialStep: 0,
+  tutorialText: '',
+  tutorialAlpha: 0,
+  attempts: 0,
+  timeToInput: 0,
+  startTime: 0,
+};
+
+function initBlendOverlay(wordObj, isLearning) {
+  blendState.active = true;
+  blendState.word = wordObj;
+  blendState.phase = isLearning ? 'tutorial' : 'intro';
+  blendState.isLearningRoom = isLearning;
+  blendState.tutorialStep = 0;
+  blendState.attempts = 0;
+  blendState.startTime = Date.now();
+
+  const cx = BASE_W / 2;
+  const cy = BASE_H / 2 - 10;
+  const spacing = 50;
+
+  blendState.bubbles = wordObj.phonemes.map((ph, i) => ({
+    x: cx + (i - 1) * spacing,
+    y: cy,
+    label: ph.label,
+    scale: 0,
+    alpha: 0,
+    revealed: false,
+    targetX: cx + (i - 1) * spacing,
+    targetY: cy,
+  }));
+
+  blendState.promptText = '';
+  blendState.promptAlpha = 0;
+  blendState.showMic = false;
+  blendState.micPulse = 0;
+  blendState.mergeProgress = 0;
+  blendState.resultText = '';
+  blendState.resultAlpha = 0;
+  blendState.keyAnim = 0;
+
+  if (isLearning) {
+    blendState.tutorialText = 'An orb of magic! Touch it to learn its sounds.';
+    blendState.tutorialAlpha = 0;
+    runTutorialSequence(wordObj);
+  } else {
+    runBlendSequence(wordObj);
+  }
+}
+
+async function runTutorialSequence(wordObj) {
+  // Step 1: intro text
+  blendState.tutorialText = 'Listen to the sounds, then blend them together!';
+  blendState.tutorialAlpha = 1;
+  await sleep(2000);
+
+  blendState.tutorialText = 'Each bubble holds a sound...';
+  await sleep(1500);
+
+  // Reveal bubbles
+  blendState.phase = 'playing';
+  await revealAndPlayBubbles(wordObj);
+
+  // Prompt
+  blendState.tutorialText = 'Now say the word! Blend the sounds together.';
+  await sleep(500);
+  await listenForWord(wordObj);
+}
+
+async function runBlendSequence(wordObj) {
+  blendState.phase = 'playing';
+  await revealAndPlayBubbles(wordObj);
+  await listenForWord(wordObj);
+}
+
+async function revealAndPlayBubbles(wordObj) {
+  for (let i = 0; i < 3; i++) {
+    blendState.bubbles[i].revealed = true;
+    // Animate scale in
+    for (let f = 0; f < 10; f++) {
+      blendState.bubbles[i].scale = f / 9;
+      blendState.bubbles[i].alpha = f / 9;
+      await sleep(16);
+    }
+    blendState.bubbles[i].scale = 1;
+    blendState.bubbles[i].alpha = 1;
+
+    // Play phoneme audio
+    const buf = await loadAudioBuffer(wordObj.phonemes[i].file);
+    if (buf) {
+      playBuffer(buf, 1.0);
+      await sleep(buf.duration * 1000 + PHONEME_GAP);
+    } else {
+      await sleep(500 + PHONEME_GAP);
+    }
+  }
+}
+
+async function listenForWord(wordObj) {
+  blendState.phase = 'listening';
+  blendState.promptText = 'Say the word!';
+  blendState.promptAlpha = 1;
+  blendState.showMic = true;
+  blendState.attempts++;
+  blendState.timeToInput = Date.now() - blendState.startTime;
+
+  const result = await SpeechEvaluator.evaluate(wordObj.word);
+
+  blendState.showMic = false;
+
+  if (result.success) {
+    // Success!
+    blendState.phase = 'success';
+    blendState.promptText = '';
+    blendState.tutorialText = '';
+    playSfx('success');
+
+    // Telemetry
+    console.log('TELEMETRY', {
+      word: wordObj.word,
+      recognized: result.recognized,
+      success: true,
+      failType: null,
+      timeToInput: blendState.timeToInput,
+      room: gameState.currentRoom,
+      attempts: blendState.attempts,
+      deaths: gameState.totalDeaths,
+    });
+
+    // Merge animation
+    blendState.phase = 'merge';
+    const cx = BASE_W / 2;
+    const cy = BASE_H / 2 - 10;
+    for (let f = 0; f < 30; f++) {
+      blendState.mergeProgress = f / 29;
+      for (let i = 0; i < 3; i++) {
+        const t = f / 29;
+        blendState.bubbles[i].x = blendState.bubbles[i].targetX + (cx - blendState.bubbles[i].targetX) * t;
+        blendState.bubbles[i].y = blendState.bubbles[i].targetY + (cy - blendState.bubbles[i].targetY) * t;
+        blendState.bubbles[i].scale = 1 - t * 0.5;
+        blendState.bubbles[i].alpha = 1 - t * 0.3;
+      }
+      await sleep(16);
+    }
+
+    // Show word
+    blendState.resultText = wordObj.word.toUpperCase();
+    blendState.resultAlpha = 1;
+    playSfx('collect');
+    spawnBurst(cx, cy, 20, COL_CYAN, 3, 40);
+    spawnBurst(cx, cy, 15, COL_GOLD, 2, 30);
+    await sleep(800);
+
+    // Transform to key
+    blendState.resultText = '';
+    blendState.keyAnim = 1;
+    await sleep(600);
+
+    // Done — award key
+    const room = gameState.rooms[gameState.currentRoom];
+    room.keysCollected++;
+    blendState.active = false;
+    gameState.paused = false;
+    gameState.totalWordsBlended++;
+
+    // Check if door should open
+    if (room.keysCollected >= room.keysNeeded) {
+      room.doorOpen = true;
+      playSfx('door');
+    }
+  } else {
+    // Fail
+    console.log('TELEMETRY', {
+      word: wordObj.word,
+      recognized: result.recognized,
+      success: false,
+      failType: result.failType,
+      timeToInput: blendState.timeToInput,
+      room: gameState.currentRoom,
+      attempts: blendState.attempts,
+      deaths: gameState.totalDeaths,
+    });
+
+    blendState.phase = 'fail';
+    playSfx('fail');
+
+    if (result.failType === 'timeout') {
+      blendState.promptText = 'The waves did not hear you call.';
+    } else {
+      const phStr = wordObj.phonemes.map(p => '/' + p.sound + '/').join(' ');
+      blendState.promptText = 'When we blend ' + phStr + ', we get \'' + wordObj.word + '\'.';
+    }
+    blendState.promptAlpha = 1;
+
+    await sleep(2500);
+
+    // Replay and retry
+    blendState.phase = 'retry';
+    blendState.promptText = 'Let\'s try again...';
+    await sleep(1000);
+
+    // Reset bubble positions
+    const cx = BASE_W / 2;
+    const spacing = 50;
+    for (let i = 0; i < 3; i++) {
+      blendState.bubbles[i].x = cx + (i - 1) * spacing;
+      blendState.bubbles[i].targetX = cx + (i - 1) * spacing;
+      blendState.bubbles[i].y = BASE_H / 2 - 10;
+      blendState.bubbles[i].targetY = BASE_H / 2 - 10;
+      blendState.bubbles[i].scale = 1;
+      blendState.bubbles[i].alpha = 1;
+    }
+
+    // Replay phonemes
+    await playPhonemeSequence(wordObj.phonemes);
+    // Listen again
+    await listenForWord(wordObj);
+  }
+}
+
+function drawBlendOverlay(frame) {
+  if (!blendState.active) return;
+
+  // Dim background
+  ctx.fillStyle = 'rgba(5, 5, 20, 0.75)';
+  ctx.fillRect(0, 0, BASE_W, BASE_H);
+
+  // Tutorial text (learning room)
+  if (blendState.tutorialText && blendState.tutorialAlpha > 0) {
+    ctx.globalAlpha = blendState.tutorialAlpha;
+    ctx.fillStyle = '#c89aff';
+    ctx.font = 'bold 9px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(blendState.tutorialText, BASE_W / 2, 30);
+    ctx.textAlign = 'left';
+    ctx.globalAlpha = 1;
+  }
+
+  // Bubbles
+  for (const b of blendState.bubbles) {
+    if (!b.revealed) continue;
+    const bx = Math.floor(b.x);
+    const by = Math.floor(b.y);
+    const r = 18 * b.scale;
+
+    // Glow
+    ctx.globalAlpha = b.alpha * 0.2;
+    ctx.fillStyle = COL_PURPLE;
+    ctx.beginPath();
+    ctx.arc(bx, by, r + 6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Main bubble
+    ctx.globalAlpha = b.alpha * 0.6;
+    ctx.fillStyle = '#2a1a5e';
+    ctx.beginPath();
+    ctx.arc(bx, by, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Border
+    ctx.globalAlpha = b.alpha * 0.8;
+    ctx.strokeStyle = COL_PURPLE;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(bx, by, r, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Label
+    ctx.globalAlpha = b.alpha;
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(b.label, bx, by);
+    ctx.textAlign = 'left';
+  }
+
+  // Prompt text
+  if (blendState.promptText && blendState.promptAlpha > 0) {
+    ctx.globalAlpha = blendState.promptAlpha;
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 10px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(blendState.promptText, BASE_W / 2, BASE_H / 2 + 40);
+    ctx.textAlign = 'left';
+    ctx.globalAlpha = 1;
+  }
+
+  // Mic icon
+  if (blendState.showMic) {
+    const mx = BASE_W / 2;
+    const my = BASE_H / 2 + 60;
+    const pulse = Math.sin(frame * 0.12) * 3;
+
+    // Mic body
+    ctx.fillStyle = COL_RED;
+    ctx.globalAlpha = 0.7 + Math.sin(frame * 0.12) * 0.2;
+    ctx.beginPath();
+    ctx.arc(mx, my - 4, 5 + pulse * 0.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Mic stand
+    ctx.fillRect(mx - 1, my + 1, 3, 6);
+    ctx.fillRect(mx - 3, my + 7, 7, 2);
+
+    // Pulse rings
+    ctx.strokeStyle = COL_RED;
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.3;
+    ctx.beginPath();
+    ctx.arc(mx, my, 10 + pulse, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 0.15;
+    ctx.beginPath();
+    ctx.arc(mx, my, 16 + pulse * 1.5, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.globalAlpha = 1;
+  }
+
+  // Result text (merged word)
+  if (blendState.resultText && blendState.resultAlpha > 0) {
+    ctx.globalAlpha = blendState.resultAlpha;
+    ctx.fillStyle = COL_CYAN;
+    ctx.font = 'bold 20px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(blendState.resultText, BASE_W / 2, BASE_H / 2 - 10);
+    ctx.textAlign = 'left';
+    ctx.globalAlpha = 1;
+  }
+
+  // Key animation after merge
+  if (blendState.keyAnim > 0) {
+    const ky = BASE_H / 2 - 10 - blendState.keyAnim * 20;
+    ctx.globalAlpha = Math.max(0, 1 - blendState.keyAnim * 0.8);
+    drawKey(BASE_W / 2 - 5, ky, frame);
+    ctx.globalAlpha = 1;
+    blendState.keyAnim += 0.02;
+  }
+
+  ctx.globalAlpha = 1;
+}
+
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+// ═══════════════════════════════════════════════════════════════
+// GAME STATE
+// ═══════════════════════════════════════════════════════════════
+const gameState = {
+  phase: 'loading', // loading, title, playing, victory
+  currentRoom: 0,
+  frame: 0,
+  paused: false,
+  player: null,
+  rooms: [],
+  totalWordsBlended: 0,
+  totalAttempts: 0,
+  totalDeaths: 0,
+  screenFlash: 0, // >0 means flash active (death)
+  fadeAlpha: 0, // for room transitions
+  fading: false,
+  wordQueue: [], // shuffled queue of word indices
+  wordQueueIdx: 0,
+};
+
+function shuffleArray(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function getNextWord() {
+  if (gameState.wordQueueIdx >= gameState.wordQueue.length) {
+    gameState.wordQueue = shuffleArray([...Array(WORDS.length).keys()]);
+    gameState.wordQueueIdx = 0;
+  }
+  return WORDS[gameState.wordQueue[gameState.wordQueueIdx++]];
+}
+
+function initRooms() {
+  gameState.rooms = [];
+  gameState.wordQueue = shuffleArray([...Array(WORDS.length).keys()]);
+  gameState.wordQueueIdx = 0;
+
+  for (let i = 0; i < ROOM_MAPS.length; i++) {
+    const map = ROOM_MAPS[i];
+    const orbs = [];
+    // Find orb positions
+    let orbCount = 0;
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (map[r][c] === 2) {
+          // Learning room (room 0) always uses "pop" per PDF flowchart
+          const word = (i === 0) ? WORDS[0] : getNextWord();
+          orbs.push({
+            tileX: c, tileY: r,
+            word,
+            collected: false,
+          });
+          orbCount++;
+        }
+      }
+    }
+    // Find door positions
+    const doors = [];
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (map[r][c] === 3) {
+          doors.push({ tileX: c, tileY: r });
+        }
+      }
+    }
+    gameState.rooms.push({
+      orbs,
+      doors,
+      keysNeeded: orbs.length,
+      keysCollected: 0,
+      doorOpen: orbs.length === 0, // victory room has no orbs, door auto-open
+    });
+  }
+}
+
+function enterRoom(roomIdx) {
+  gameState.currentRoom = roomIdx;
+  // Position player at left entrance on ground
+  const map = ROOM_MAPS[roomIdx];
+  // Find ground position at left
+  let spawnY = 0;
+  for (let r = 0; r < ROWS; r++) {
+    if (map[r][0] === 1) {
+      spawnY = r * TILE - 16;
+      break;
+    }
+  }
+  gameState.player = createPlayer(8, spawnY);
+}
+
+function respawnPlayer() {
+  gameState.totalDeaths++;
+  gameState.screenFlash = 15;
+  playSfx('death');
+  spawnBurst(gameState.player.x + 6, gameState.player.y + 8, 15, COL_RED, 3, 25);
+
+  const map = ROOM_MAPS[gameState.currentRoom];
+  let spawnY = 0;
+  for (let r = 0; r < ROWS; r++) {
+    if (map[r][0] === 1) {
+      spawnY = r * TILE - 16;
+      break;
+    }
+  }
+  gameState.player = createPlayer(8, spawnY);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ROOM TRANSITION
+// ═══════════════════════════════════════════════════════════════
+let transitioning = false;
+async function transitionToRoom(roomIdx) {
+  if (transitioning) return;
+  transitioning = true;
+  gameState.paused = true;
+
+  // Fade out
+  for (let i = 0; i < 20; i++) {
+    gameState.fadeAlpha = i / 19;
+    await sleep(16);
+  }
+
+  if (roomIdx >= ROOM_MAPS.length) {
+    // Victory!
+    showVictory();
+    transitioning = false;
+    return;
+  }
+
+  enterRoom(roomIdx);
+
+  // Fade in
+  for (let i = 20; i >= 0; i--) {
+    gameState.fadeAlpha = i / 20;
+    await sleep(16);
+  }
+  gameState.fadeAlpha = 0;
+  gameState.paused = false;
+  transitioning = false;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PLAYER UPDATE (Celeste-style physics)
+// ═══════════════════════════════════════════════════════════════
+function updatePlayer() {
+  const p = gameState.player;
+  if (!p) return;
+  const map = ROOM_MAPS[gameState.currentRoom];
+
+  // ── Dash freeze ──
+  if (p.dashFreezeTimer > 0) {
+    p.dashFreezeTimer--;
+    return; // freeze all movement
+  }
+
+  // ── Input direction ──
+  let inputX = 0;
+  if (input.left) inputX -= 1;
+  if (input.right) inputX += 1;
+
+  // Update facing
+  if (inputX !== 0 && p.dashTimer <= 0) {
+    p.facing = inputX;
+  }
+
+  // ── Jump buffer ──
+  if (input.jumpPressed) {
+    p.jumpBufferTimer = JUMP_BUFFER_FRAMES;
+  }
+  if (p.jumpBufferTimer > 0) p.jumpBufferTimer--;
+
+  // ── Wall detection ──
+  const wallCheck = collideTiles(map, p.x, p.y, p.w, p.h);
+  const touchingWallLeft = wallCheck.wallLeft;
+  const touchingWallRight = wallCheck.wallRight;
+  const onWall = (!p.grounded) && ((touchingWallLeft && input.left) || (touchingWallRight && input.right));
+
+  // Refresh dash on ground or wall touch
+  if (p.grounded || touchingWallLeft || touchingWallRight) {
+    p.hasDash = true;
+  }
+
+  // ── Dash ──
+  if (p.dashTimer > 0) {
+    p.dashTimer--;
+    p.vx = p.dashDirX * DASH_SPEED;
+    p.vy = p.dashDirY * DASH_SPEED;
+
+    // Dash trail particles
+    spawnParticle(
+      p.x + p.w / 2 + (Math.random() - 0.5) * 4,
+      p.y + p.h / 2 + (Math.random() - 0.5) * 4,
+      -p.dashDirX * 1.5 + (Math.random() - 0.5),
+      -p.dashDirY * 1.5 + (Math.random() - 0.5),
+      15, COL_CYAN, 2
+    );
+
+    if (p.dashTimer <= 0) {
+      // End dash: reduce velocity
+      p.vx *= 0.5;
+      p.vy *= 0.3;
+      if (p.vy < 0) p.vy = Math.max(p.vy, -2);
+    }
+
+    // Collide
+    const col = moveAndCollide(map, p, p.vx, p.vy);
+    if (col.spike) { respawnPlayer(); return; }
+    if (col.grounded) {
+      p.grounded = true;
+      p.vy = 0;
+      p.coyoteTimer = COYOTE_FRAMES;
+    }
+    p.state = 'dash';
+    return;
+  }
+
+  // Start dash
+  if (input.dashPressed && p.hasDash) {
+    p.hasDash = false;
+    p.dashTimer = DASH_FRAMES;
+    p.dashFreezeTimer = DASH_FREEZE_FRAMES;
+
+    // 8-directional dash
+    let dx = inputX;
+    let dy = 0;
+    if (input.jump) dy = -1; // up
+    // No explicit down input, so if no direction, dash in facing direction
+    if (dx === 0 && dy === 0) {
+      dx = p.facing;
+    }
+    // Normalize
+    const len = Math.sqrt(dx * dx + dy * dy);
+    p.dashDirX = dx / len;
+    p.dashDirY = dy / len;
+
+    playSfx('dash');
+    p.state = 'dash';
+    return;
+  }
+
+  // ── Wall Slide ──
+  if (onWall && p.vy > 0) {
+    p.vy = Math.min(p.vy, WALL_SLIDE_SPEED);
+    p.wallDir = touchingWallLeft ? -1 : 1;
+    p.state = 'wall_slide';
+
+    // Wall jump
+    if (p.jumpBufferTimer > 0) {
+      p.jumpBufferTimer = 0;
+      p.vx = -p.wallDir * WALL_JUMP_X;
+      p.vy = WALL_JUMP_Y;
+      p.wallJumpTimer = 10;
+      p.grounded = false;
+      p.coyoteTimer = 0;
+      p.state = 'wall_jump';
+      playSfx('jump');
+      spawnBurst(p.x + (p.wallDir > 0 ? p.w : 0), p.y + p.h / 2, 5, '#aaaaff', 2, 12);
+    }
+  } else {
+    p.wallDir = 0;
+  }
+
+  // ── Coyote timer ──
+  if (p.grounded) {
+    p.coyoteTimer = COYOTE_FRAMES;
+  } else {
+    if (p.coyoteTimer > 0) p.coyoteTimer--;
+  }
+
+  // ── Jump ──
+  if (p.jumpBufferTimer > 0 && p.coyoteTimer > 0 && p.state !== 'wall_slide' && p.state !== 'wall_jump') {
+    p.vy = JUMP_FORCE;
+    p.grounded = false;
+    p.coyoteTimer = 0;
+    p.jumpBufferTimer = 0;
+    p.state = 'jump';
+    playSfx('jump');
+  }
+
+  // Variable jump height
+  if (input.jumpReleased && p.vy < 0) {
+    p.vy *= JUMP_CUT;
+  }
+
+  // ── Horizontal movement ──
+  if (p.wallJumpTimer > 0) {
+    p.wallJumpTimer--;
+    // During wall jump, reduce horizontal control
+    if (inputX !== 0) {
+      p.vx += inputX * RUN_ACCEL * 0.3;
+    }
+  } else {
+    if (inputX !== 0) {
+      // Accelerate toward input
+      p.vx += inputX * RUN_ACCEL;
+      if (Math.abs(p.vx) > RUN_SPEED) {
+        p.vx = Math.sign(p.vx) * RUN_SPEED;
+      }
+    } else {
+      // Friction
+      if (Math.abs(p.vx) < RUN_DECEL) {
+        p.vx = 0;
+      } else {
+        p.vx -= Math.sign(p.vx) * RUN_DECEL;
+      }
+    }
+  }
+
+  // ── Gravity ──
+  if (!p.grounded) {
+    p.vy += GRAVITY;
+    if (p.vy > MAX_FALL) p.vy = MAX_FALL;
+  }
+
+  // ── Move and collide ──
+  const col = moveAndCollide(map, p, p.vx, p.vy);
+
+  if (col.grounded) {
+    p.grounded = true;
+    p.vy = 0;
+  } else {
+    p.grounded = false;
+  }
+
+  if (col.ceiling) {
+    p.vy = 0;
+  }
+
+  if (col.wallLeft || col.wallRight) {
+    // Don't zero vx during wall jump momentum
+    if (p.wallJumpTimer <= 0) {
+      p.vx = 0;
+    }
+  }
+
+  if (col.spike) {
+    respawnPlayer();
+    return;
+  }
+
+  // ── Update state for animation ──
+  if (p.state !== 'wall_slide' && p.state !== 'wall_jump') {
+    if (p.grounded) {
+      if (Math.abs(p.vx) > 0.3) {
+        p.state = 'run';
+      } else {
+        p.state = 'idle';
+      }
+    } else {
+      if (p.vy < 0) p.state = 'jump';
+      else p.state = 'fall';
+    }
+  }
+  // Wall jump state decays
+  if (p.state === 'wall_jump' && p.wallJumpTimer <= 0) {
+    p.state = p.vy < 0 ? 'jump' : 'fall';
+  }
+
+  // ── Out of bounds ──
+  if (p.y > BASE_H + 20) {
+    respawnPlayer();
+    return;
+  }
+  if (p.x < -2) {
+    p.x = -2;
+    p.vx = 0;
+  }
+
+  // ── Exit right edge → next room ──
+  if (p.x + p.w > BASE_W) {
+    const room = gameState.rooms[gameState.currentRoom];
+    if (room.doorOpen || gameState.currentRoom === ROOM_MAPS.length - 1) {
+      transitionToRoom(gameState.currentRoom + 1);
+    } else {
+      p.x = BASE_W - p.w;
+      p.vx = 0;
+    }
+  }
+
+  // ── Orb overlap check ──
+  if (!gameState.paused && !blendState.active) {
+    const room = gameState.rooms[gameState.currentRoom];
+    for (const orb of room.orbs) {
+      if (orb.collected) continue;
+      const ox = orb.tileX * TILE;
+      const oy = orb.tileY * TILE;
+      // AABB overlap
+      if (p.x + p.w > ox && p.x < ox + TILE &&
+          p.y + p.h > oy && p.y < oy + TILE) {
+        // Trigger blending
+        orb.collected = true;
+        gameState.paused = true;
+        gameState.totalAttempts++;
+        initBlendOverlay(orb.word, gameState.currentRoom === 0);
+        break;
+      }
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// VICTORY / TITLE SCREEN LOGIC
+// ═══════════════════════════════════════════════════════════════
+function showVictory() {
+  gameState.phase = 'victory';
+  gameState.paused = true;
+  victoryStats.innerHTML =
+    'Words Blended: ' + gameState.totalWordsBlended + '<br>' +
+    'Total Attempts: ' + gameState.totalAttempts + '<br>' +
+    'Rooms Cleared: ' + (gameState.currentRoom) + '<br>' +
+    'Falls: ' + gameState.totalDeaths;
+  victoryScreen.style.display = 'flex';
+}
+
+function startGame() {
+  gameState.phase = 'playing';
+  gameState.totalWordsBlended = 0;
+  gameState.totalAttempts = 0;
+  gameState.totalDeaths = 0;
+  gameState.fadeAlpha = 0;
+  gameState.screenFlash = 0;
+  blendState.active = false;
+  particles.length = 0;
+  initRooms();
+  enterRoom(0);
+  gameState.paused = false;
+}
+
+// Title screen tap
+titleScreen.addEventListener('click', () => {
+  ensureAudioCtx();
+  titleScreen.style.opacity = '0';
+  setTimeout(() => {
+    titleScreen.style.display = 'none';
+    startGame();
+  }, 600);
+});
+titleScreen.addEventListener('touchend', (e) => {
+  e.stopPropagation();
+  ensureAudioCtx();
+  titleScreen.style.opacity = '0';
+  setTimeout(() => {
+    titleScreen.style.display = 'none';
+    startGame();
+  }, 600);
+});
+
+// Victory screen tap
+victoryScreen.addEventListener('click', () => {
+  victoryScreen.style.display = 'none';
+  startGame();
+});
+victoryScreen.addEventListener('touchend', (e) => {
+  e.stopPropagation();
+  victoryScreen.style.display = 'none';
+  startGame();
+});
+
+// Exit button
+exitBtn.addEventListener('click', () => {
+  if (gameState.phase === 'playing') {
+    gameState.phase = 'title';
+    gameState.paused = true;
+    blendState.active = false;
+    titleScreen.style.display = 'flex';
+    titleScreen.style.opacity = '1';
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// MAIN RENDER FUNCTION
+// ═══════════════════════════════════════════════════════════════
+function render() {
+  const frame = gameState.frame;
+  ctx.clearRect(0, 0, BASE_W, BASE_H);
+
+  if (gameState.phase === 'loading' || gameState.phase === 'title') {
+    drawBackground(frame, 0);
+    drawAmbientMotes(frame);
+    return;
+  }
+
+  if (gameState.phase !== 'playing' && gameState.phase !== 'victory') return;
+
+  const roomIdx = gameState.currentRoom;
+  const room = gameState.rooms[roomIdx];
+  const map = ROOM_MAPS[roomIdx];
+
+  // Background
+  drawBackground(frame, roomIdx);
+
+  // Ambient motes
+  drawAmbientMotes(frame);
+
+  // Tiles
+  drawTileMap(map);
+
+  // Doors
+  for (const door of room.doors) {
+    drawDoor(door.tileX, door.tileY, frame, room.doorOpen);
+  }
+
+  // Orb clusters
+  for (const orb of room.orbs) {
+    drawOrbCluster(orb.tileX, orb.tileY, frame, orb.collected);
+  }
+
+  // Particles (behind player)
+  drawParticles();
+
+  // Player
+  if (gameState.player) {
+    drawPlayer(gameState.player, frame);
+  }
+
+  // HUD
+  drawHUD(room.keysCollected, room.keysNeeded, ROOM_NAMES[roomIdx]);
+
+  // Phoneme blending overlay (drawn on canvas)
+  drawBlendOverlay(frame);
+
+  // Screen flash (death)
+  if (gameState.screenFlash > 0) {
+    ctx.globalAlpha = gameState.screenFlash / 15 * 0.5;
+    ctx.fillStyle = COL_RED;
+    ctx.fillRect(0, 0, BASE_W, BASE_H);
+    ctx.globalAlpha = 1;
+    gameState.screenFlash--;
+  }
+
+  // Room transition fade
+  if (gameState.fadeAlpha > 0) {
+    ctx.globalAlpha = gameState.fadeAlpha;
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, BASE_W, BASE_H);
+    ctx.globalAlpha = 1;
+  }
+
+  // Victory room: extra celebration particles
+  if (roomIdx === 4 && frame % 10 === 0) {
+    const colors = [COL_PURPLE, COL_CYAN, COL_GOLD, '#ff88ff'];
+    spawnParticle(
+      Math.random() * BASE_W, BASE_H,
+      (Math.random() - 0.5) * 2, -1 - Math.random() * 2,
+      60, colors[Math.floor(Math.random() * colors.length)],
+      2 + Math.random() * 2
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// INITIALIZATION
+// ═══════════════════════════════════════════════════════════════
+initBgStars();
+initBgMountains();
+initAmbientMotes();
+
+// Hide loading screen after a brief moment
+setTimeout(() => {
+  loadingScreen.style.opacity = '0';
+  setTimeout(() => {
+    loadingScreen.style.display = 'none';
+    gameState.phase = 'title';
+  }, 500);
+}, 800);
+
+// ═══════════════════════════════════════════════════════════════
+// GAME LOOP
+// ═══════════════════════════════════════════════════════════════
+let lastTime = 0;
+
+function gameLoop(timestamp) {
+  requestAnimationFrame(gameLoop);
+
+  const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
+  lastTime = timestamp;
+
+  gameState.frame++;
+
+  // Update input (combines keyboard + touch)
+  updateTouchBtnState();
+  pollInput();
+
+  if (gameState.phase === 'playing' && !gameState.paused && !blendState.active) {
+    updatePlayer();
+  }
+
+  // Update blend overlay timing (mic pulse, etc.)
+  if (blendState.active) {
+    blendState.micPulse += 0.05;
+    // Update merge animation
+    if (blendState.phase === 'merge') {
+      blendState.mergeProgress = Math.min(blendState.mergeProgress + 0.025, 1);
+      if (blendState.mergeProgress >= 1 && blendState.keyAnim < 1) {
+        blendState.keyAnim = Math.min(blendState.keyAnim + 0.04, 1);
+      }
+    }
+    // Fade prompt text in
+    if (blendState.promptAlpha < 1 && blendState.promptText) {
+      blendState.promptAlpha = Math.min(blendState.promptAlpha + 0.05, 1);
+    }
+    // Fade result text
+    if (blendState.resultText && blendState.resultAlpha < 1) {
+      blendState.resultAlpha = Math.min(blendState.resultAlpha + 0.04, 1);
+    }
+    // Tutorial text fade
+    if (blendState.tutorialText && blendState.tutorialAlpha < 1) {
+      blendState.tutorialAlpha = Math.min(blendState.tutorialAlpha + 0.04, 1);
+    }
+  }
+
+  updateParticles();
+  updateAmbientMotes(gameState.frame);
+  render();
+
+  // Clear per-frame input flags
+  input.jumpPressed = false;
+  input.dashPressed = false;
+  input.jumpReleased = false;
+}
+
+requestAnimationFrame(gameLoop);
+
+</script>
+</body>
+</html>
