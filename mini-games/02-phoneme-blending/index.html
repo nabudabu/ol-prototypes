@@ -233,21 +233,21 @@
 const BASE_W = 384, BASE_H = 216;
 const TILE = 24;
 const COLS = 16, ROWS = 9;
-const GRAVITY = 0.55;
-const MAX_FALL = 8;
-const RUN_SPEED = 2.2;
-const RUN_ACCEL = 0.6;
+const GRAVITY = 0.35;
+const MAX_FALL = 9;
+const RUN_SPEED = 2.4;
+const RUN_ACCEL = 0.65;
 const RUN_DECEL = 0.45;
-const JUMP_FORCE = -5.2;
+const JUMP_FORCE = -7.2;
 const JUMP_CUT = 0.4;
 const COYOTE_FRAMES = 6;
 const JUMP_BUFFER_FRAMES = 6;
-const DASH_SPEED = 6;
-const DASH_FRAMES = 6;
+const DASH_SPEED = 7;
+const DASH_FRAMES = 7;
 const DASH_FREEZE_FRAMES = 2;
-const WALL_SLIDE_SPEED = 1.0;
-const WALL_JUMP_X = 3.5;
-const WALL_JUMP_Y = -4.8;
+const WALL_SLIDE_SPEED = 1.2;
+const WALL_JUMP_X = 4.0;
+const WALL_JUMP_Y = -6.5;
 const PHONEME_GAP = 800;
 const SPEECH_TIMEOUT = 5000;
 const AUDIO_PATH = '../01-arcane-resonance/audio/';
@@ -938,10 +938,8 @@ function drawTileMap(map) {
 // COLLISION SYSTEM
 // ═══════════════════════════════════════════════════════════════
 function isSolid(map, col, row) {
-  if (col < 0 || col >= COLS || row < 0) return false;
-  if (row >= ROWS) return true; // below map = solid
-  const t = map[row][col];
-  return t === 1;
+  if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return false;
+  return map[row][col] === 1;
 }
 
 function isDoor(map, col, row) {
