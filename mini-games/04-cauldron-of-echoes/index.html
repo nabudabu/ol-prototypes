@@ -490,7 +490,30 @@
     // ==================== AUDIO ====================
     let audioCtx = null;
     let droneOsc = null, droneGain = null;
-    let ttsVoice = null;
+    const AUDIO_PATH = 'audio/';
+    const wordBuffers = {};   // { word: AudioBuffer }
+    let activeWord = null;    // { source, gain }
+
+    // Collect every unique word for preloading
+    function allWords() {
+        const set = new Set();
+        ROUND_DATA.forEach(rd => rd.words.forEach(w => set.add(w)));
+        return [...set];
+    }
+
+    async function loadWordAudio() {
+        if (!audioCtx) return;
+        const load = async (word) => {
+            try {
+                const resp = await fetch(AUDIO_PATH + word + '.mp3');
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                wordBuffers[word] = await audioCtx.decodeAudioData(await resp.arrayBuffer());
+            } catch (err) {
+                console.warn(`Failed to load ${word}.mp3:`, err);
+            }
+        };
+        await Promise.all(allWords().map(load));
+    }
 
     async function initAudio() {
         if (!audioCtx) {
@@ -510,17 +533,34 @@
     }
 
     function speakWord(word) {
-        if (!('speechSynthesis' in window)) return;
-        // Chrome/Safari bug: cancel() + immediate speak() silently fails.
-        // Workaround: cancel, then speak, then resume to unblock pipeline.
-        speechSynthesis.cancel();
-        const u = new SpeechSynthesisUtterance(word);
-        u.rate = 0.85;
-        u.pitch = 1.05;
-        u.volume = 1.0;
-        if (ttsVoice) u.voice = ttsVoice;
-        speechSynthesis.speak(u);
-        speechSynthesis.resume();
+        stopWord();
+        if (!audioCtx) return;
+        const buffer = wordBuffers[word];
+        if (!buffer) return;
+
+        const gain = audioCtx.createGain();
+        gain.connect(audioCtx.destination);
+        gain.gain.setValueAtTime(0.7, audioCtx.currentTime);
+
+        const source = audioCtx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(gain);
+        source.start();
+        activeWord = { source, gain };
+    }
+
+    function stopWord() {
+        if (!activeWord) return;
+        const { source, gain } = activeWord;
+        activeWord = null;
+        const t = audioCtx.currentTime;
+        gain.gain.cancelScheduledValues(t);
+        gain.gain.setValueAtTime(gain.gain.value, t);
+        gain.gain.linearRampToValueAtTime(0, t + 0.08);
+        setTimeout(() => {
+            try { source.stop(); } catch(e) {}
+            try { gain.disconnect(); } catch(e) {}
+        }, 100);
     }
 
     function startDrone() {
@@ -842,13 +882,8 @@
         const rd = ROUND_DATA[currentRound];
         rd.words.forEach((word, i) => {
             const b = createBottle(word, BOTTLE_COLORS[i], i);
-            // Difficulty: text visibility
-            if (currentRound >= 4) {
-                b.sprite.material.opacity = 0;
-                b.textVisible = false;
-            } else if (currentRound >= 2) {
-                b.textVisible = 'fade'; // will fade after 2s
-            }
+            // Text always visible — difficulty progression via audio
+            // scaffolding will be added once audio is confirmed working
             bottles.push(b);
         });
 
@@ -995,7 +1030,7 @@
     }
 
     function exitToTitle() {
-        if ('speechSynthesis' in window) speechSynthesis.cancel();
+        stopWord();
         clearBottles();
         state = 'title';
         $sealsWrap.style.display = 'none';
@@ -1154,13 +1189,6 @@
                     b.light.intensity = 0.6 + Math.sin(elapsed * 4) * 0.3;
                 }
 
-                // Text fade for difficulty
-                if (b.textVisible === 'fade') {
-                    if (stateTimer > 2.0) {
-                        b.sprite.material.opacity = Math.max(0, b.sprite.material.opacity - dt * 1.0);
-                    }
-                }
-
                 // Gentle rotation
                 b.group.rotation.y = Math.sin(elapsed * 0.3 + b.bobOffset) * 0.15;
             } else {
@@ -1253,20 +1281,12 @@
     }
 
     // ==================== BOOT ====================
-    function boot() {
-        // Pre-warm TTS voices (no user gesture needed for this)
-        if ('speechSynthesis' in window) {
-            const pickVoice = () => {
-                const v = speechSynthesis.getVoices();
-                ttsVoice = v.find(x => /ava|samantha|karen|daniel/i.test(x.name) && /en/i.test(x.lang))
-                        || v.find(x => /en[-_]us/i.test(x.lang))
-                        || v.find(x => /en/i.test(x.lang))
-                        || null;
-            };
-            pickVoice();
-            if (speechSynthesis.onvoiceschanged !== undefined) {
-                speechSynthesis.onvoiceschanged = pickVoice;
-            }
+    async function boot() {
+        try {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            await loadWordAudio();
+        } catch (err) {
+            console.warn('Audio loading failed:', err);
         }
 
         $loading.classList.add('done');
