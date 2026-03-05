@@ -657,19 +657,33 @@
         });
     }
 
+    // iOS Safari only unlocks speechSynthesis on touchend/click — NOT pointerdown.
+    // Since the game starts on pointerdown (for responsive drum taps), we must
+    // unlock speech separately via these events which fire ~30-80ms later.
+    function unlockSpeech() {
+        if (!('speechSynthesis' in window)) return;
+        const u = new SpeechSynthesisUtterance(' ');
+        u.volume = 0.01;
+        speechSynthesis.speak(u);
+        document.removeEventListener('touchend', unlockSpeech);
+        document.removeEventListener('click', unlockSpeech);
+    }
+    document.addEventListener('touchend', unlockSpeech);
+    document.addEventListener('click', unlockSpeech);
+
     function speakWord(word) {
         if (!('speechSynthesis' in window)) return;
-        // Only cancel if something is actually playing — avoids Chrome bug
-        // where cancel() immediately before speak() eats the new utterance
-        if (speechSynthesis.speaking || speechSynthesis.pending) {
-            speechSynthesis.cancel();
-        }
-        const utt = new SpeechSynthesisUtterance(word);
-        utt.lang = 'en-US';
-        utt.rate = SPEAK_RATE;
-        utt.pitch = 0.9;
-        utt.volume = 1.0;
-        speechSynthesis.speak(utt);
+        speechSynthesis.cancel();
+        // 150ms delay lets iOS touchend/click unlock fire before we speak,
+        // and avoids Chrome bug where cancel() eats the next speak()
+        setTimeout(() => {
+            const utt = new SpeechSynthesisUtterance(word);
+            utt.lang = 'en-US';
+            utt.rate = SPEAK_RATE;
+            utt.pitch = 0.9;
+            utt.volume = 1.0;
+            speechSynthesis.speak(utt);
+        }, 150);
     }
 
     // ==================== UI ====================
