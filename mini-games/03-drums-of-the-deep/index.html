@@ -646,7 +646,7 @@
         });
     }
 
-    // ==================== WORD AUDIO (pre-recorded WAV) ====================
+    // ==================== WORD AUDIO (pre-recorded MP3, Microsoft Ava Neural) ====================
     const wordBuffers = {};   // { word: AudioBuffer }
     let activeWord = null;    // { source, gain }
 
@@ -661,11 +661,11 @@
         if (!audioCtx) return;
         const load = async (word) => {
             try {
-                const resp = await fetch(AUDIO_PATH + word + '.wav');
+                const resp = await fetch(AUDIO_PATH + word + '.mp3');
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 wordBuffers[word] = await audioCtx.decodeAudioData(await resp.arrayBuffer());
             } catch (err) {
-                console.warn(`Failed to load ${word}.wav:`, err);
+                console.warn(`Failed to load ${word}.mp3:`, err);
             }
         };
         await Promise.all(allWords().map(load));
@@ -772,15 +772,32 @@
     function hideInstruction() { $instr.classList.remove('visible'); }
 
     // ==================== GAME LOGIC ====================
+    // Track recently used words across games to avoid repeats within a session.
+    // Each syllable level keeps a shuffled queue; once exhausted, it reshuffles.
+    const wordQueues = {};
+    function nextWord(syllables) {
+        if (!wordQueues[syllables] || wordQueues[syllables].length === 0) {
+            wordQueues[syllables] = [...WORD_POOL[syllables]].sort(() => Math.random() - 0.5);
+        }
+        return wordQueues[syllables].pop();
+    }
+
     function generateRounds() {
+        const usedThisGame = new Set();
         rounds = [];
         for (let i = 0; i < NUM_ROUNDS; i++) {
             const target = ROUND_PLAN[i];
             const syllables = Array.isArray(target)
                 ? target[Math.floor(Math.random() * target.length)]
                 : target;
-            const pool = WORD_POOL[syllables];
-            const word = pool[Math.floor(Math.random() * pool.length)];
+            let word = nextWord(syllables);
+            // If we somehow got a duplicate within this game, draw again
+            let attempts = 0;
+            while (usedThisGame.has(word) && attempts < 10) {
+                word = nextWord(syllables);
+                attempts++;
+            }
+            usedThisGame.add(word);
             rounds.push({ word, syllables });
         }
     }
