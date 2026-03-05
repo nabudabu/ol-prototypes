@@ -507,21 +507,6 @@
                 await a.play().catch(() => {});
             } catch(e) {}
         }
-
-        // Warm up TTS voices
-        if ('speechSynthesis' in window) {
-            const pickVoice = () => {
-                const v = speechSynthesis.getVoices();
-                ttsVoice = v.find(x => /ava|samantha|karen|daniel/i.test(x.name) && /en/i.test(x.lang))
-                        || v.find(x => /en[-_]us/i.test(x.lang))
-                        || v.find(x => /en/i.test(x.lang))
-                        || null;
-            };
-            pickVoice();
-            if (speechSynthesis.onvoiceschanged !== undefined) {
-                speechSynthesis.onvoiceschanged = pickVoice;
-            }
-        }
     }
 
     function speakWord(word) {
@@ -1258,12 +1243,20 @@
     }
 
     // ==================== BOOT ====================
-    async function boot() {
-        try {
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            await initAudio();
-        } catch (err) {
-            console.warn('Audio init failed:', err);
+    function boot() {
+        // Pre-warm TTS voices (no user gesture needed for this)
+        if ('speechSynthesis' in window) {
+            const pickVoice = () => {
+                const v = speechSynthesis.getVoices();
+                ttsVoice = v.find(x => /ava|samantha|karen|daniel/i.test(x.name) && /en/i.test(x.lang))
+                        || v.find(x => /en[-_]us/i.test(x.lang))
+                        || v.find(x => /en/i.test(x.lang))
+                        || null;
+            };
+            pickVoice();
+            if (speechSynthesis.onvoiceschanged !== undefined) {
+                speechSynthesis.onvoiceschanged = pickVoice;
+            }
         }
 
         $loading.classList.add('done');
