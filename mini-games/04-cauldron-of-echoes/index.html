@@ -261,10 +261,10 @@
 
     const BOTTLE_COLORS = [0xcc44ff, 0x44ffcc, 0xffcc44, 0xff6688];
     const BOTTLE_SLOTS = [
-        { x: -1.6, y: 1.7, z: 0.1 },
-        { x: -0.5, y: 1.95, z: 0.05 },
-        { x:  0.5, y: 1.95, z: 0.05 },
-        { x:  1.6, y: 1.7, z: 0.1 },
+        { x: -1.35, y: 1.7, z: 0.1 },
+        { x: -0.45, y: 1.95, z: 0.05 },
+        { x:  0.45, y: 1.95, z: 0.05 },
+        { x:  1.35, y: 1.7, z: 0.1 },
     ];
 
     // ==================== STATE ====================
@@ -511,13 +511,16 @@
 
     function speakWord(word) {
         if (!('speechSynthesis' in window)) return;
+        // Chrome/Safari bug: cancel() + immediate speak() silently fails.
+        // Workaround: cancel, then speak, then resume to unblock pipeline.
         speechSynthesis.cancel();
         const u = new SpeechSynthesisUtterance(word);
-        u.rate = 0.82;
+        u.rate = 0.85;
         u.pitch = 1.05;
         u.volume = 1.0;
         if (ttsVoice) u.voice = ttsVoice;
         speechSynthesis.speak(u);
+        speechSynthesis.resume();
     }
 
     function startDrone() {
@@ -615,7 +618,7 @@
 
     // ==================== WORD TEXTURE ====================
     function createWordTexture(text, colorHex) {
-        const size = 256;
+        const size = 512;
         const canvas = document.createElement('canvas');
         canvas.width = size; canvas.height = size;
         const ctx = canvas.getContext('2d');
@@ -624,20 +627,27 @@
 
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        const fontSize = text.length > 6 ? size * 0.22 : text.length > 4 ? size * 0.28 : size * 0.36;
+        const label = text.toUpperCase();
+
+        // Dynamic font sizing — shrink until it fits with room for glow
+        let fontSize = size * 0.3;
         ctx.font = `bold ${fontSize}px "Cinzel", Georgia, serif`;
+        while (ctx.measureText(label).width > size * 0.8 && fontSize > 24) {
+            fontSize *= 0.88;
+            ctx.font = `bold ${fontSize}px "Cinzel", Georgia, serif`;
+        }
 
         ctx.shadowColor = rgb;
         ctx.shadowBlur = 30;
         ctx.fillStyle = rgb;
         ctx.globalAlpha = 0.6;
-        for (let i = 0; i < 3; i++) ctx.fillText(text.toUpperCase(), size/2, size/2);
+        for (let i = 0; i < 3; i++) ctx.fillText(label, size/2, size/2);
 
         ctx.globalAlpha = 1.0;
         ctx.shadowColor = '#ffffff';
         ctx.shadowBlur = 10;
         ctx.fillStyle = '#ffffff';
-        ctx.fillText(text.toUpperCase(), size/2, size/2);
+        ctx.fillText(label, size/2, size/2);
 
         return new THREE.CanvasTexture(canvas);
     }
@@ -690,8 +700,8 @@
         const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
             map: tex, transparent: true, depthTest: false, opacity: 1,
         }));
-        sprite.scale.set(0.75, 0.75, 1);
-        sprite.position.y = 0.78;
+        sprite.scale.set(1.1, 1.1, 1);
+        sprite.position.y = 0.85;
         group.add(sprite);
 
         // Glow light
@@ -1221,9 +1231,9 @@
         }
 
         if (state === 'pouring') {
-            // Wait for pour animation to finish
+            // Wait for pour animation to finish, or force after safety timeout
             const allDone = !bottles.some(b => b.pouring && b.alive);
-            if (allDone && stateTimer >= POUR_TIME + 0.3) {
+            if ((allDone && stateTimer >= POUR_TIME + 0.3) || stateTimer >= 3.0) {
                 state = 'feedback';
                 stateTimer = 0;
             }
