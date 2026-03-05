@@ -802,8 +802,9 @@
         }
     }
 
-    function startGame() {
-        initAudio().then(() => startDrone());
+    async function startGame() {
+        await initAudio();
+        startDrone();
 
         score = 0;
         currentRound = 0;
