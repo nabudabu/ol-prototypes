@@ -267,16 +267,19 @@
     // ================================================================
 
     // ==================== CONFIG ====================
-    const WORDS = [
-        { word: 'shneak',        syllables: 1 },
-        { word: 'smaggle',       syllables: 2 },
-        { word: 'discrete',      syllables: 2 },
-        { word: 'enfogment',     syllables: 3 },
-        { word: 'misdirection',  syllables: 4 },
-        { word: 'invisible',     syllables: 4 },
-        { word: 'intentionally', syllables: 5 },
-    ];
-
+    // Word pool organized by syllable count.
+    // CSV originals: shneak(1), smaggle(2), discrete(2), enfogment(3),
+    //   misdirection(4), invisible(4), intentionally(5)
+    // Extended with real + nonsense words per CSV note "Use real or nonsense words"
+    const WORD_POOL = {
+        1: ['shneak', 'flint', 'crumb', 'stalk', 'plunge', 'shrine', 'groft', 'dusk', 'scroll', 'branch'],
+        2: ['smaggle', 'discrete', 'ancient', 'kingdom', 'crystal', 'portal', 'brimscot', 'puzzle', 'cauldron', 'phantom'],
+        3: ['enfogment', 'discover', 'remember', 'dangerous', 'mystery', 'adventure', 'trillogen', 'enchantment', 'prisoner', 'origin'],
+        4: ['misdirection', 'invisible', 'understanding', 'discovery', 'celebration', 'information', 'caterpillar', 'watermelon'],
+        5: ['intentionally', 'communication', 'unbelievable', 'investigation', 'determination', 'imagination'],
+    };
+    // Syllable target per round — arrays mean pick randomly from those levels
+    const ROUND_PLAN      = [1, 2, [2,3], 3, [3,4], 4, 5];
     const NUM_ROUNDS      = 7;
     const MAX_TAPS        = 6;
     const CONFIRM_DELAY   = 1.0;
@@ -655,24 +658,18 @@
     }
 
     function speakWord(word) {
-        return new Promise(resolve => {
-            if (!('speechSynthesis' in window) || !speechSynthesis) {
-                setTimeout(resolve, 1500);
-                return;
-            }
+        if (!('speechSynthesis' in window)) return;
+        // Only cancel if something is actually playing — avoids Chrome bug
+        // where cancel() immediately before speak() eats the new utterance
+        if (speechSynthesis.speaking || speechSynthesis.pending) {
             speechSynthesis.cancel();
-            const utt = new SpeechSynthesisUtterance(word);
-            utt.lang = 'en-US';
-            utt.rate = SPEAK_RATE;
-            utt.pitch = 0.9;
-            utt.volume = 1.0;
-
-            const timeout = setTimeout(resolve, 4000);
-            utt.onend = () => { clearTimeout(timeout); resolve(); };
-            utt.onerror = () => { clearTimeout(timeout); resolve(); };
-
-            speechSynthesis.speak(utt);
-        });
+        }
+        const utt = new SpeechSynthesisUtterance(word);
+        utt.lang = 'en-US';
+        utt.rate = SPEAK_RATE;
+        utt.pitch = 0.9;
+        utt.volume = 1.0;
+        speechSynthesis.speak(utt);
     }
 
     // ==================== UI ====================
@@ -746,13 +743,21 @@
 
     // ==================== GAME LOGIC ====================
     function generateRounds() {
-        // Items in progressive order (easy → hard)
-        rounds = WORDS.slice(0, NUM_ROUNDS);
+        rounds = [];
+        for (let i = 0; i < NUM_ROUNDS; i++) {
+            const target = ROUND_PLAN[i];
+            const syllables = Array.isArray(target)
+                ? target[Math.floor(Math.random() * target.length)]
+                : target;
+            const pool = WORD_POOL[syllables];
+            const word = pool[Math.floor(Math.random() * pool.length)];
+            rounds.push({ word, syllables });
+        }
     }
 
-    async function startGame() {
-        await initAudio();
-        startDrone();
+    function startGame() {
+        // Init audio without blocking — preserves user-gesture context for speechSynthesis
+        initAudio().then(() => startDrone());
 
         score = 0;
         currentRound = 0;
@@ -767,7 +772,7 @@
         startRound();
     }
 
-    async function startRound() {
+    function startRound() {
         state = 'speaking';
         stateTimer = 0;
         tapCount = 0;
@@ -799,6 +804,7 @@
     }
 
     function evaluate() {
+        if ('speechSynthesis' in window) speechSynthesis.cancel();
         const rd = rounds[currentRound];
         const isCorrect = tapCount === rd.syllables;
 
