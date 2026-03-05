@@ -1,0 +1,1277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!--
+        Mini-Game #04: Cauldron of Echoes
+        Curriculum: Phonological Awareness → Detection → Rhyming (CSV Row 18)
+        Exercise: "Child taps rhyming syllables"
+        "4 speaking stones say the words when touched. Player must drag the rhyming stones into their rhyme bag."
+        Input: Visual | Output: Tactile (tap) | Feedback: Auditory + Visual
+        Modality chain: Visual → Tactile → Auditory
+        Sample items from CSV: [cap,cat,nap,pan] [wish,dish,fish,chip]
+            [slam,cram,slip,slot] [table,cable,nation,belly] [wiggle,squiggle,tickle,shuffle]
+        Notes: Uses real words per CSV.
+
+        Difficulty progression (per curriculum-mapping.md):
+          Rounds 1-2 (Supported):    Word text always visible on bottles + spoken on tap
+          Rounds 3-4 (Reduced):      Word text fades after 2s, spoken on tap
+          Round 5   (Independent):   No text shown, only spoken on tap
+    -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Cauldron of Echoes</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Cinzel:wght@700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            width: 100%; height: 100%;
+            overflow: hidden;
+            background: #040a08;
+            color: #fff;
+            touch-action: none;
+            -webkit-user-select: none;
+            user-select: none;
+            font-family: 'Cinzel', Georgia, serif;
+        }
+        canvas { display: block; }
+
+        .screen {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 20;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.4s ease;
+        }
+        .screen.visible { opacity: 1; }
+
+        #title-screen {
+            background: radial-gradient(ellipse at center, rgba(5,30,20,0.92), rgba(4,10,8,0.98));
+        }
+        #title-screen h1 {
+            font-family: 'Cinzel Decorative', 'Cinzel', serif;
+            font-size: clamp(26px, 7vw, 52px);
+            letter-spacing: 4px;
+            text-shadow: 0 0 40px rgba(0,255,136,0.5), 0 0 80px rgba(0,255,136,0.2);
+            margin-bottom: 16px;
+            text-align: center;
+            line-height: 1.3;
+            color: #66ffaa;
+        }
+        #title-screen .subtitle {
+            font-size: clamp(10px, 2.4vw, 13px);
+            letter-spacing: 3px;
+            color: rgba(102,255,170,0.4);
+            margin-bottom: 36px;
+            text-align: center;
+            padding: 0 24px;
+            text-transform: uppercase;
+        }
+        .prompt {
+            font-size: clamp(12px, 3vw, 16px);
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            animation: breathe 3s ease-in-out infinite;
+            color: rgba(102,255,170,0.45);
+        }
+
+        #seals-wrap {
+            position: fixed;
+            top: 7%;
+            left: 50%;
+            transform: translateX(-50%);
+            display: none;
+            gap: 10px;
+            z-index: 10;
+            pointer-events: none;
+        }
+        .seal {
+            width: 22px; height: 22px;
+            border-radius: 50%;
+            border: 2px solid rgba(0,200,100,0.25);
+            background: rgba(0,200,100,0.04);
+            transition: all 0.4s ease;
+        }
+        .seal.active {
+            border-color: rgba(0,220,120,0.8);
+            background: rgba(0,220,120,0.12);
+            box-shadow: 0 0 10px rgba(0,200,100,0.4);
+        }
+        .seal.brewed {
+            border-color: rgba(255,204,68,0.7);
+            background: rgba(255,204,68,0.15);
+            box-shadow: 0 0 12px rgba(255,204,68,0.4);
+        }
+        .seal.failed {
+            border-color: rgba(255,70,70,0.35);
+            background: rgba(255,70,70,0.08);
+        }
+
+        #timer-wrap {
+            position: fixed;
+            top: 13%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 55%;
+            max-width: 260px;
+            height: 3px;
+            background: rgba(255,255,255,0.06);
+            border-radius: 2px;
+            overflow: hidden;
+            z-index: 10;
+            display: none;
+        }
+        #timer-fill {
+            height: 100%;
+            width: 100%;
+            border-radius: 2px;
+            background: linear-gradient(90deg, #ff4466, #ffaa44, #44ffcc);
+            box-shadow: 0 0 8px rgba(68,255,204,0.4);
+            transition: width 0.1s linear;
+        }
+
+        #instruction {
+            position: fixed;
+            bottom: 11%;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: clamp(10px, 2.4vw, 13px);
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            color: rgba(102,255,170,0.35);
+            z-index: 10;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            text-align: center;
+        }
+        #instruction.visible { opacity: 1; }
+
+        #result-screen {
+            background: radial-gradient(ellipse at center, rgba(5,30,20,0.9), rgba(4,10,8,0.97));
+        }
+        #result-screen .result-label {
+            font-family: 'Cinzel Decorative', 'Cinzel', serif;
+            font-size: clamp(20px, 5.5vw, 38px);
+            letter-spacing: 3px;
+            margin-bottom: 16px;
+            text-align: center;
+        }
+        #result-screen .result-score {
+            font-size: clamp(38px, 10vw, 60px);
+            letter-spacing: 6px;
+            margin-bottom: 32px;
+        }
+
+        #exit-btn {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            width: 44px; height: 44px;
+            border: none;
+            background: rgba(255,255,255,0.06);
+            border-radius: 50%;
+            font-family: 'Cinzel', Georgia, serif;
+            font-size: 16px;
+            color: rgba(255,255,255,0.35);
+            cursor: pointer;
+            z-index: 30;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            -webkit-tap-highlight-color: transparent;
+            transition: opacity 0.3s ease, background 0.2s ease;
+        }
+        #exit-btn.visible { display: flex; }
+        #exit-btn:active { background: rgba(255,255,255,0.15); color: rgba(255,255,255,0.7); }
+
+        #loading {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(4,10,8,0.95);
+            color: rgba(102,255,170,0.4);
+            font-size: 14px;
+            letter-spacing: 4px;
+            z-index: 50;
+            pointer-events: none;
+            transition: opacity 0.4s ease;
+        }
+        #loading.done { opacity: 0; }
+
+        @keyframes breathe {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 0.7; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="loading">Brewing...</div>
+    <button id="exit-btn" aria-label="Exit game">&#x2715;</button>
+
+    <div id="seals-wrap"></div>
+    <div id="timer-wrap"><div id="timer-fill"></div></div>
+    <div id="instruction">Tap bottles to listen &middot; Find the rhyme</div>
+
+    <div id="title-screen" class="screen visible">
+        <h1>Cauldron of<br>Echoes</h1>
+        <p class="subtitle">Find the rhyming pair to brew the potion</p>
+        <p class="prompt">Tap to Enter</p>
+    </div>
+
+    <div id="result-screen" class="screen">
+        <div class="result-label" id="result-label">Potions Brewed</div>
+        <div class="result-score" id="result-score">3 / 5</div>
+        <p class="prompt">Tap to Retry</p>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <script>
+    // ================================================================
+    //  CAULDRON OF ECHOES — Mini-Game #04
+    //  Curriculum: Phonological Awareness → Detection → Rhyming
+    //  CSV Row 18: "Child taps rhyming syllables"
+    //  Modality: Visual → Tactile → Auditory
+    // ================================================================
+
+    // ==================== CONFIG ====================
+    const NUM_ROUNDS    = 5;
+    const ROUND_TIME    = 12;
+    const POUR_TIME     = 0.7;
+    const FEEDBACK_PAUSE = 1.0;
+    const CASCADE_TIME  = 2.5;
+    const NUM_BOTTLES   = 4;
+
+    // Sample items from CSV Row 18 — always exactly 2 rhymers, 2 distractors
+    const ROUND_DATA = [
+        { words: ['cat', 'cap', 'pan', 'nap'],             rhymes: ['cap', 'nap'] },
+        { words: ['slip', 'slam', 'slot', 'cram'],         rhymes: ['slam', 'cram'] },
+        { words: ['chip', 'wish', 'bell', 'dish'],         rhymes: ['wish', 'dish'] },
+        { words: ['belly', 'table', 'nation', 'cable'],    rhymes: ['table', 'cable'] },
+        { words: ['tickle', 'wiggle', 'shuffle', 'squiggle'], rhymes: ['wiggle', 'squiggle'] },
+    ];
+
+    const BOTTLE_COLORS = [0xcc44ff, 0x44ffcc, 0xffcc44, 0xff6688];
+    const BOTTLE_SLOTS = [
+        { x: -1.6, y: 1.7, z: 0.1 },
+        { x: -0.5, y: 1.95, z: 0.05 },
+        { x:  0.5, y: 1.95, z: 0.05 },
+        { x:  1.6, y: 1.7, z: 0.1 },
+    ];
+
+    // ==================== STATE ====================
+    let state        = 'loading';
+    let stateTimer   = 0;
+    let roundTimer   = 0;
+    let currentRound = 0;
+    let score        = 0;
+    let selectedIdx  = -1;
+    let shakeAmount  = 0;
+    let cauldronGlow = 0.3;
+    let potionHue    = 0.38;
+    let bottles      = [];
+    let feedbackType = '';
+
+    // ==================== THREE.JS SCENE ====================
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x040a08);
+    scene.fog = new THREE.FogExp2(0x040a08, 0.028);
+
+    const camera = new THREE.PerspectiveCamera(48, innerWidth / innerHeight, 0.1, 100);
+    camera.position.set(0, 1.3, 5.8);
+    camera.lookAt(0, 0.7, 0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
+    document.body.prepend(renderer.domElement);
+
+    const ambLight = new THREE.AmbientLight(0x0a1510, 0.5);
+    scene.add(ambLight);
+    const keyLight = new THREE.PointLight(0x44cc88, 1.0, 20);
+    keyLight.position.set(0, 5, 3);
+    scene.add(keyLight);
+    const fillLight = new THREE.PointLight(0x223344, 0.35, 15);
+    fillLight.position.set(-3, -1, 4);
+    scene.add(fillLight);
+
+    // ==================== GROUND ====================
+    const ground = new THREE.Mesh(
+        new THREE.PlaneGeometry(40, 40),
+        new THREE.MeshStandardMaterial({ color: 0x060a08, roughness: 0.95, metalness: 0.05 })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = -0.85;
+    scene.add(ground);
+
+    const floorGlow = new THREE.Mesh(
+        new THREE.CircleGeometry(2.5, 48),
+        new THREE.MeshBasicMaterial({ color: 0x061a10, transparent: true, opacity: 0.3 })
+    );
+    floorGlow.rotation.x = -Math.PI / 2;
+    floorGlow.position.y = -0.84;
+    scene.add(floorGlow);
+
+    // ==================== AMBIENT PARTICLES ====================
+    const dustMotes = (function() {
+        const count = 90;
+        const pos = new Float32Array(count * 3);
+        const meta = [];
+        for (let i = 0; i < count; i++) {
+            pos[i*3]   = (Math.random() - 0.5) * 10;
+            pos[i*3+1] = Math.random() * 6 - 1;
+            pos[i*3+2] = (Math.random() - 0.5) * 6 - 1;
+            meta.push({
+                ySpeed: 0.08 + Math.random() * 0.2,
+                wobble: Math.random() * Math.PI * 2,
+                wobbleSpeed: 0.3 + Math.random() * 0.6,
+                wobbleAmp: 0.05 + Math.random() * 0.1,
+            });
+        }
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        const pts = new THREE.Points(geo, new THREE.PointsMaterial({
+            color: 0x33aa66, size: 0.03, transparent: true, opacity: 0.3,
+        }));
+        scene.add(pts);
+        return { pts, meta };
+    })();
+
+    // ==================== CAULDRON ====================
+    const cauldron = (function() {
+        const group = new THREE.Group();
+
+        // Body
+        const bodyGeo = new THREE.CylinderGeometry(0.95, 0.65, 0.75, 32);
+        const bodyMat = new THREE.MeshStandardMaterial({
+            color: 0x1a1a1a, roughness: 0.7, metalness: 0.6,
+            emissive: 0x050808, emissiveIntensity: 0.1,
+        });
+        group.add(new THREE.Mesh(bodyGeo, bodyMat));
+
+        // Rim
+        const rimGeo = new THREE.TorusGeometry(0.97, 0.065, 8, 48);
+        const rimMat = new THREE.MeshStandardMaterial({
+            color: 0x99772b, roughness: 0.3, metalness: 0.8,
+            emissive: 0x553311, emissiveIntensity: 0.2,
+        });
+        const rim = new THREE.Mesh(rimGeo, rimMat);
+        rim.rotation.x = Math.PI / 2;
+        rim.position.y = 0.375;
+        group.add(rim);
+
+        // Liquid surface
+        const liqGeo = new THREE.CircleGeometry(0.88, 48);
+        const liqMat = new THREE.MeshStandardMaterial({
+            color: 0x00cc66, emissive: 0x00ff88, emissiveIntensity: 0.35,
+            transparent: true, opacity: 0.75, side: THREE.DoubleSide,
+        });
+        const liquid = new THREE.Mesh(liqGeo, liqMat);
+        liquid.rotation.x = -Math.PI / 2;
+        liquid.position.y = 0.28;
+        group.add(liquid);
+
+        // Inner glow
+        const light = new THREE.PointLight(0x00ff88, 0.6, 5);
+        light.position.y = 0.6;
+        group.add(light);
+
+        // Legs
+        for (let i = 0; i < 3; i++) {
+            const angle = (i / 3) * Math.PI * 2 - Math.PI / 6;
+            const leg = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.05, 0.07, 0.4, 6),
+                new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.7, metalness: 0.5 })
+            );
+            leg.position.set(Math.cos(angle) * 0.52, -0.57, Math.sin(angle) * 0.52);
+            group.add(leg);
+        }
+
+        group.position.y = -0.35;
+        scene.add(group);
+        return { group, bodyMat, liquid, liqMat, light, rimMat: rimMat };
+    })();
+
+    // ==================== CAULDRON BUBBLES ====================
+    const bubbles = (function() {
+        const count = 35;
+        const pos = new Float32Array(count * 3);
+        const meta = [];
+        for (let i = 0; i < count; i++) {
+            const a = Math.random() * Math.PI * 2;
+            const r = Math.random() * 0.7;
+            pos[i*3]   = Math.cos(a) * r;
+            pos[i*3+1] = 0;
+            pos[i*3+2] = Math.sin(a) * r;
+            meta.push({
+                speed: 0.4 + Math.random() * 0.8,
+                wobble: Math.random() * Math.PI * 2,
+                maxH: 0.3 + Math.random() * 0.8,
+                angle: a, radius: r,
+            });
+        }
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        const pts = new THREE.Points(geo, new THREE.PointsMaterial({
+            color: 0x66ffaa, size: 0.06, transparent: true, opacity: 0.5,
+        }));
+        pts.position.copy(cauldron.group.position);
+        pts.position.y += 0.35;
+        scene.add(pts);
+        return { pts, meta, geo };
+    })();
+
+    // ==================== FLASH PLANE ====================
+    const flashPlane = (function() {
+        const mat = new THREE.MeshBasicMaterial({
+            color: 0xffffff, transparent: true, opacity: 0, depthTest: false,
+        });
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), mat);
+        mesh.position.z = 4;
+        scene.add(mesh);
+        return { mesh, mat };
+    })();
+
+    function triggerFlash(color, intensity) {
+        flashPlane.mat.color.set(color);
+        flashPlane.mat.opacity = intensity;
+    }
+
+    // ==================== PARTICLE EFFECTS ====================
+    let explosions = [];
+    let steamPuffs = [];
+
+    function createExplosion(pos, colorHex, count) {
+        count = count || 30;
+        const geo = new THREE.BufferGeometry();
+        const positions = new Float32Array(count * 3);
+        const vels = [];
+        for (let i = 0; i < count; i++) {
+            positions[i*3] = pos.x; positions[i*3+1] = pos.y; positions[i*3+2] = pos.z;
+            const th = Math.random() * Math.PI * 2;
+            const ph = Math.acos(2 * Math.random() - 1);
+            const sp = 1.2 + Math.random() * 3.5;
+            vels.push(new THREE.Vector3(
+                Math.sin(ph) * Math.cos(th) * sp,
+                Math.sin(ph) * Math.sin(th) * sp * 0.6 + 1.5,
+                Math.cos(ph) * sp * 0.4
+            ));
+        }
+        geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        const mesh = new THREE.Points(geo, new THREE.PointsMaterial({
+            color: colorHex, size: 0.07, transparent: true, opacity: 1,
+        }));
+        scene.add(mesh);
+        explosions.push({ mesh, vels, life: 1.0 });
+    }
+
+    function createSteam(pos, colorHex) {
+        const geo = new THREE.RingGeometry(0.5, 0.8, 48);
+        const mat = new THREE.MeshBasicMaterial({
+            color: colorHex || 0x66ffaa, transparent: true, opacity: 0.4, side: THREE.DoubleSide,
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.rotation.x = -Math.PI / 2;
+        mesh.position.copy(pos);
+        scene.add(mesh);
+        steamPuffs.push({ mesh, mat, life: 1.0 });
+    }
+
+    // ==================== AUDIO ====================
+    let audioCtx = null;
+    let droneOsc = null, droneGain = null;
+    let ttsVoice = null;
+
+    async function initAudio() {
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtx.state === 'suspended') await audioCtx.resume();
+
+        if (!initAudio._unlocked) {
+            initAudio._unlocked = true;
+            try {
+                const a = new Audio();
+                a.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+                a.volume = 0.01;
+                await a.play().catch(() => {});
+            } catch(e) {}
+        }
+
+        // Warm up TTS voices
+        if ('speechSynthesis' in window) {
+            const pickVoice = () => {
+                const v = speechSynthesis.getVoices();
+                ttsVoice = v.find(x => /ava|samantha|karen|daniel/i.test(x.name) && /en/i.test(x.lang))
+                        || v.find(x => /en[-_]us/i.test(x.lang))
+                        || v.find(x => /en/i.test(x.lang))
+                        || null;
+            };
+            pickVoice();
+            if (speechSynthesis.onvoiceschanged !== undefined) {
+                speechSynthesis.onvoiceschanged = pickVoice;
+            }
+        }
+    }
+
+    function speakWord(word) {
+        if (!('speechSynthesis' in window)) return;
+        speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(word);
+        u.rate = 0.82;
+        u.pitch = 1.05;
+        u.volume = 1.0;
+        if (ttsVoice) u.voice = ttsVoice;
+        speechSynthesis.speak(u);
+    }
+
+    function startDrone() {
+        if (!audioCtx || droneOsc) return;
+        droneOsc = audioCtx.createOscillator();
+        droneGain = audioCtx.createGain();
+        const filter = audioCtx.createBiquadFilter();
+        droneOsc.type = 'sine';
+        droneOsc.frequency.value = 55;
+        filter.type = 'lowpass';
+        filter.frequency.value = 90;
+        droneGain.gain.value = 0;
+        droneOsc.connect(filter);
+        filter.connect(droneGain);
+        droneGain.connect(audioCtx.destination);
+        droneOsc.start();
+        droneGain.gain.linearRampToValueAtTime(0.04, audioCtx.currentTime + 2);
+    }
+
+    function playBubblePop() {
+        if (!audioCtx) return;
+        const t = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(600 + Math.random() * 300, t);
+        osc.frequency.exponentialRampToValueAtTime(200, t + 0.15);
+        gain.gain.setValueAtTime(0.08, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.start(t); osc.stop(t + 0.15);
+    }
+
+    function playChime(freq) {
+        if (!audioCtx) return;
+        const t = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq || 880;
+        gain.gain.setValueAtTime(0.06, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.start(t); osc.stop(t + 0.6);
+    }
+
+    function playBrewSuccess() {
+        if (!audioCtx) return;
+        [330, 440, 554, 660, 880].forEach((freq, i) => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sine';
+            osc.frequency.value = freq;
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            const st = audioCtx.currentTime + i * 0.06;
+            gain.gain.setValueAtTime(0, st);
+            gain.gain.linearRampToValueAtTime(0.1, st + 0.03);
+            gain.gain.exponentialRampToValueAtTime(0.001, st + 1.2);
+            osc.start(st); osc.stop(st + 1.2);
+        });
+    }
+
+    function playBrewFail() {
+        if (!audioCtx) return;
+        [95, 113].forEach(freq => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.value = freq;
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            const t = audioCtx.currentTime;
+            gain.gain.setValueAtTime(0.08, t);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+            osc.start(t); osc.stop(t + 0.35);
+        });
+    }
+
+    function playCascadeChord(charge) {
+        if (!audioCtx) return;
+        const notes = [196, 262, 330, 392, 523];
+        const count = Math.max(2, Math.round(charge * 5));
+        notes.slice(0, count).forEach((freq, i) => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sine';
+            osc.frequency.value = freq;
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            const st = audioCtx.currentTime + i * 0.12;
+            gain.gain.setValueAtTime(0, st);
+            gain.gain.linearRampToValueAtTime(0.08 * charge + 0.03, st + 0.05);
+            gain.gain.exponentialRampToValueAtTime(0.001, st + 2.2);
+            osc.start(st); osc.stop(st + 2.2);
+        });
+    }
+
+    // ==================== WORD TEXTURE ====================
+    function createWordTexture(text, colorHex) {
+        const size = 256;
+        const canvas = document.createElement('canvas');
+        canvas.width = size; canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        const c = new THREE.Color(colorHex);
+        const rgb = `rgb(${c.r*255|0},${c.g*255|0},${c.b*255|0})`;
+
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const fontSize = text.length > 6 ? size * 0.22 : text.length > 4 ? size * 0.28 : size * 0.36;
+        ctx.font = `bold ${fontSize}px "Cinzel", Georgia, serif`;
+
+        ctx.shadowColor = rgb;
+        ctx.shadowBlur = 30;
+        ctx.fillStyle = rgb;
+        ctx.globalAlpha = 0.6;
+        for (let i = 0; i < 3; i++) ctx.fillText(text.toUpperCase(), size/2, size/2);
+
+        ctx.globalAlpha = 1.0;
+        ctx.shadowColor = '#ffffff';
+        ctx.shadowBlur = 10;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(text.toUpperCase(), size/2, size/2);
+
+        return new THREE.CanvasTexture(canvas);
+    }
+
+    // ==================== BOTTLE SYSTEM ====================
+    function createBottle(word, colorHex, index) {
+        const group = new THREE.Group();
+
+        // Body
+        const bodyGeo = new THREE.CylinderGeometry(0.17, 0.21, 0.52, 12);
+        const bodyMat = new THREE.MeshStandardMaterial({
+            color: colorHex, transparent: true, opacity: 0.3,
+            emissive: colorHex, emissiveIntensity: 0.12,
+            roughness: 0.05, metalness: 0.8,
+        });
+        const body = new THREE.Mesh(bodyGeo, bodyMat);
+        group.add(body);
+
+        // Neck
+        const neckMat = bodyMat.clone();
+        const neck = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.065, 0.11, 0.16, 12),
+            neckMat
+        );
+        neck.position.y = 0.34;
+        group.add(neck);
+
+        // Cork
+        const cork = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.072, 0.072, 0.07, 8),
+            new THREE.MeshStandardMaterial({ color: 0x8B5E3C, roughness: 0.8, metalness: 0.1 })
+        );
+        cork.position.y = 0.455;
+        group.add(cork);
+
+        // Liquid inside
+        const liqMat = new THREE.MeshStandardMaterial({
+            color: colorHex, emissive: colorHex, emissiveIntensity: 0.35,
+            transparent: true, opacity: 0.55, roughness: 0.3,
+        });
+        const liquid = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.14, 0.18, 0.38, 12),
+            liqMat
+        );
+        liquid.position.y = -0.04;
+        group.add(liquid);
+
+        // Word sprite
+        const tex = createWordTexture(word, colorHex);
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+            map: tex, transparent: true, depthTest: false, opacity: 1,
+        }));
+        sprite.scale.set(0.75, 0.75, 1);
+        sprite.position.y = 0.78;
+        group.add(sprite);
+
+        // Glow light
+        const light = new THREE.PointLight(colorHex, 0.3, 2);
+        group.add(light);
+
+        // Invisible hit target
+        const hitSphere = new THREE.Mesh(
+            new THREE.SphereGeometry(0.5, 8, 6),
+            new THREE.MeshBasicMaterial({ visible: false })
+        );
+        hitSphere.userData.bottleIndex = index;
+        group.add(hitSphere);
+
+        // Position
+        const slot = BOTTLE_SLOTS[index];
+        group.position.set(slot.x, slot.y, slot.z);
+        group.scale.setScalar(0);
+
+        scene.add(group);
+
+        return {
+            group, body, bodyMat, neckMat, liquid, liqMat, sprite, light, hitSphere,
+            word, color: colorHex, index,
+            selected: false,
+            alive: true,
+            pouring: false,
+            pourTime: 0,
+            pourStartPos: null,
+            bobOffset: Math.random() * Math.PI * 2,
+            fadeIn: 0,
+            shakeTime: 0,
+            textVisible: true,
+        };
+    }
+
+    function clearBottles() {
+        bottles.forEach(b => scene.remove(b.group));
+        bottles = [];
+        selectedIdx = -1;
+    }
+
+    function selectBottle(idx) {
+        const b = bottles[idx];
+        if (!b || !b.alive) return;
+        b.selected = true;
+        selectedIdx = idx;
+        // Golden glow
+        b.bodyMat.emissive.set(0xffcc44);
+        b.bodyMat.emissiveIntensity = 0.5;
+        b.neckMat.emissive.set(0xffcc44);
+        b.neckMat.emissiveIntensity = 0.5;
+        b.liqMat.emissive.set(0xffcc44);
+        b.liqMat.emissiveIntensity = 0.6;
+        b.light.color.set(0xffcc44);
+        b.light.intensity = 1.0;
+    }
+
+    function deselectBottle(idx) {
+        const b = bottles[idx];
+        if (!b) return;
+        b.selected = false;
+        if (selectedIdx === idx) selectedIdx = -1;
+        // Restore original color
+        b.bodyMat.emissive.set(b.color);
+        b.bodyMat.emissiveIntensity = 0.12;
+        b.neckMat.emissive.set(b.color);
+        b.neckMat.emissiveIntensity = 0.12;
+        b.liqMat.emissive.set(b.color);
+        b.liqMat.emissiveIntensity = 0.35;
+        b.light.color.set(b.color);
+        b.light.intensity = 0.3;
+    }
+
+    function deselectAll() {
+        bottles.forEach((b, i) => { if (b.selected) deselectBottle(i); });
+    }
+
+    // ==================== UI ====================
+    const $title     = document.getElementById('title-screen');
+    const $result    = document.getElementById('result-screen');
+    const $resultLbl = document.getElementById('result-label');
+    const $resultScr = document.getElementById('result-score');
+    const $timerWrap = document.getElementById('timer-wrap');
+    const $timerFill = document.getElementById('timer-fill');
+    const $exitBtn   = document.getElementById('exit-btn');
+    const $loading   = document.getElementById('loading');
+    const $sealsWrap = document.getElementById('seals-wrap');
+    const $instr     = document.getElementById('instruction');
+
+    function showScreen(el)  { el.classList.add('visible'); }
+    function hideScreen(el)  { el.classList.remove('visible'); }
+    function showInstruction() { $instr.classList.add('visible'); }
+    function hideInstruction() { $instr.classList.remove('visible'); }
+
+    // Seal indicators
+    const seals = [];
+    for (let i = 0; i < NUM_ROUNDS; i++) {
+        const el = document.createElement('div');
+        el.className = 'seal';
+        $sealsWrap.appendChild(el);
+        seals.push(el);
+    }
+
+    function updateSealsUI() {
+        seals.forEach((el, i) => {
+            el.classList.remove('active', 'brewed', 'failed');
+            if (i === currentRound) el.classList.add('active');
+        });
+    }
+
+    function markSeal(index, type) {
+        seals[index].classList.remove('active');
+        seals[index].classList.add(type);
+    }
+
+    // ==================== GAME LOGIC ====================
+    async function startGame() {
+        await initAudio();
+        startDrone();
+        score = 0;
+        currentRound = 0;
+        cauldronGlow = 0.3;
+        hideScreen($title);
+        hideScreen($result);
+        $sealsWrap.style.display = 'flex';
+        $timerWrap.style.display = '';
+        $exitBtn.classList.add('visible');
+        startRound();
+    }
+
+    function startRound() {
+        state = 'playing';
+        stateTimer = 0;
+        roundTimer = ROUND_TIME;
+        clearBottles();
+
+        const rd = ROUND_DATA[currentRound];
+        rd.words.forEach((word, i) => {
+            const b = createBottle(word, BOTTLE_COLORS[i], i);
+            // Difficulty: text visibility
+            if (currentRound >= 4) {
+                b.sprite.material.opacity = 0;
+                b.textVisible = false;
+            } else if (currentRound >= 2) {
+                b.textVisible = 'fade'; // will fade after 2s
+            }
+            bottles.push(b);
+        });
+
+        updateSealsUI();
+        showInstruction();
+        $timerFill.style.width = '100%';
+    }
+
+    function handleBottleTap(bottleIdx) {
+        if (state !== 'playing') return;
+        const b = bottles[bottleIdx];
+        if (!b || !b.alive) return;
+
+        // Speak the word
+        speakWord(b.word);
+        playChime(600 + bottleIdx * 120);
+
+        if (selectedIdx === bottleIdx) {
+            // Re-tap selected: deselect
+            deselectBottle(bottleIdx);
+            return;
+        }
+
+        if (selectedIdx === -1) {
+            // Nothing selected: select this one
+            selectBottle(bottleIdx);
+            return;
+        }
+
+        // Another bottle is already selected — check rhyme
+        const selWord = bottles[selectedIdx].word;
+        const tapWord = b.word;
+        const rd = ROUND_DATA[currentRound];
+        const isMatch = rd.rhymes.includes(selWord) && rd.rhymes.includes(tapWord);
+
+        if (isMatch) {
+            handleCorrectMatch(selectedIdx, bottleIdx);
+        } else {
+            handleWrongMatch(selectedIdx, bottleIdx);
+        }
+    }
+
+    function handleCorrectMatch(idx1, idx2) {
+        feedbackType = 'correct';
+        score++;
+        markSeal(currentRound, 'brewed');
+
+        // Start pour animation
+        [idx1, idx2].forEach(i => {
+            const b = bottles[i];
+            b.pouring = true;
+            b.pourTime = 0;
+            b.pourStartPos = b.group.position.clone();
+        });
+
+        // Deselect visual but keep alive for pour animation
+        deselectAll();
+        // Mark non-pouring bottles as dead
+        bottles.forEach((b, i) => {
+            if (i !== idx1 && i !== idx2) b.alive = false;
+        });
+
+        playBrewSuccess();
+        state = 'pouring';
+        stateTimer = 0;
+    }
+
+    function handleWrongMatch(idx1, idx2) {
+        // Shake both bottles
+        bottles[idx1].shakeTime = 0.4;
+        bottles[idx2].shakeTime = 0.4;
+        deselectAll();
+        playBrewFail();
+        triggerFlash(0xff3344, 0.08);
+        shakeAmount = 0.04;
+    }
+
+    function handleTimeout() {
+        feedbackType = 'timeout';
+        markSeal(currentRound, 'failed');
+        deselectAll();
+        playBrewFail();
+        triggerFlash(0xff3344, 0.06);
+        state = 'feedback';
+        stateTimer = 0;
+    }
+
+    function advanceRound() {
+        currentRound++;
+        if (currentRound >= NUM_ROUNDS) {
+            startCascade();
+        } else {
+            startRound();
+        }
+    }
+
+    function startCascade() {
+        state = 'cascade';
+        stateTimer = 0;
+        clearBottles();
+        $timerWrap.style.display = 'none';
+        hideInstruction();
+
+        const charge = score / NUM_ROUNDS;
+        cauldronGlow = charge;
+
+        playCascadeChord(charge);
+
+        const cPos = cauldron.group.position.clone();
+        cPos.y += 0.5;
+        const burstCount = Math.floor(15 + charge * 50);
+        createExplosion(cPos, 0x66ffaa, burstCount);
+        if (charge > 0.5) createExplosion(cPos, 0xffcc44, burstCount / 2);
+        for (let i = 0; i < Math.ceil(charge * 3); i++) {
+            setTimeout(() => createSteam(new THREE.Vector3(0, cPos.y, 0), 0x66ffaa), i * 200);
+        }
+        triggerFlash(0x44ff88, 0.15 + charge * 0.3);
+        shakeAmount = 0.06 + charge * 0.15;
+    }
+
+    function showResults() {
+        state = 'results';
+        $exitBtn.classList.remove('visible');
+        $sealsWrap.style.display = 'none';
+
+        if (score === NUM_ROUNDS) {
+            $resultLbl.textContent = 'Master Brewer';
+            $resultLbl.style.textShadow = '0 0 30px rgba(255,204,68,0.7)';
+            $resultLbl.style.color = '#ffdd66';
+            $resultScr.style.color = '#ffcc44';
+        } else if (score >= 3) {
+            $resultLbl.textContent = 'The Brew Stirs';
+            $resultLbl.style.textShadow = '0 0 25px rgba(102,255,170,0.5)';
+            $resultLbl.style.color = '#88ffbb';
+            $resultScr.style.color = '#66ddaa';
+        } else {
+            $resultLbl.textContent = 'The Cauldron Cools';
+            $resultLbl.style.textShadow = '0 0 15px rgba(100,100,120,0.3)';
+            $resultLbl.style.color = '#778899';
+            $resultScr.style.color = '#667788';
+        }
+        $resultScr.textContent = `${score} / ${NUM_ROUNDS}`;
+        showScreen($result);
+    }
+
+    function exitToTitle() {
+        if ('speechSynthesis' in window) speechSynthesis.cancel();
+        clearBottles();
+        state = 'title';
+        $sealsWrap.style.display = 'none';
+        $timerWrap.style.display = 'none';
+        $exitBtn.classList.remove('visible');
+        hideInstruction();
+        showScreen($title);
+        hideScreen($result);
+    }
+
+    // ==================== INPUT ====================
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+
+    document.addEventListener('pointerdown', function(e) {
+        if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+        if (e.target === $exitBtn) return;
+        e.preventDefault();
+
+        switch (state) {
+            case 'title':
+                startGame();
+                return;
+            case 'results':
+                startGame();
+                return;
+            case 'playing':
+                pointer.x = (e.clientX / innerWidth) * 2 - 1;
+                pointer.y = -(e.clientY / innerHeight) * 2 + 1;
+                raycaster.setFromCamera(pointer, camera);
+
+                const hitTargets = bottles.filter(b => b.alive && !b.pouring).map(b => b.hitSphere);
+                const hits = raycaster.intersectObjects(hitTargets);
+                if (hits.length > 0) {
+                    handleBottleTap(hits[0].object.userData.bottleIndex);
+                }
+                return;
+        }
+    }, { passive: false });
+
+    $exitBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        exitToTitle();
+    });
+
+    // ==================== RESIZE ====================
+    window.addEventListener('resize', () => {
+        camera.aspect = innerWidth / innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(innerWidth, innerHeight);
+    });
+
+    // ==================== MAIN LOOP ====================
+    const clock = new THREE.Clock();
+    const cameraBase = camera.position.clone();
+
+    function update() {
+        requestAnimationFrame(update);
+        const dt = Math.min(clock.getDelta(), 0.1);
+        const elapsed = clock.elapsedTime;
+        stateTimer += dt;
+
+        // --- Dust motes ---
+        const dp = dustMotes.pts.geometry.attributes.position.array;
+        for (let i = 0; i < dustMotes.meta.length; i++) {
+            const m = dustMotes.meta[i];
+            dp[i*3+1] += m.ySpeed * dt;
+            dp[i*3]   += Math.sin(elapsed * m.wobbleSpeed + m.wobble) * m.wobbleAmp * dt;
+            if (dp[i*3+1] > 5) {
+                dp[i*3+1] = -1;
+                dp[i*3] = (Math.random() - 0.5) * 10;
+            }
+        }
+        dustMotes.pts.geometry.attributes.position.needsUpdate = true;
+
+        // --- Cauldron animations ---
+        const cGlow = cauldronGlow + Math.sin(elapsed * 2.0) * 0.05;
+        cauldron.liqMat.emissiveIntensity = 0.25 + cGlow * 0.5;
+        cauldron.light.intensity = 0.4 + cGlow * 2.0;
+        cauldron.liquid.position.y = 0.28 + Math.sin(elapsed * 1.5) * 0.01;
+
+        // Potion color shifts toward warmer as score increases
+        const hsl = { h: 0, s: 0, l: 0 };
+        cauldron.liqMat.color.getHSL(hsl);
+        const targetH = 0.38 - (score / NUM_ROUNDS) * 0.12;
+        hsl.h += (targetH - hsl.h) * dt * 2;
+        cauldron.liqMat.color.setHSL(hsl.h, 0.8, 0.4);
+        cauldron.liqMat.emissive.setHSL(hsl.h, 0.9, 0.5);
+
+        // --- Bubbles ---
+        const bp = bubbles.geo.attributes.position.array;
+        for (let i = 0; i < bubbles.meta.length; i++) {
+            const m = bubbles.meta[i];
+            bp[i*3+1] += m.speed * dt * (0.5 + cGlow);
+            bp[i*3]   += Math.sin(elapsed * 2 + m.wobble) * 0.01;
+            if (bp[i*3+1] > m.maxH) {
+                const a = Math.random() * Math.PI * 2;
+                const r = Math.random() * 0.7;
+                bp[i*3]   = Math.cos(a) * r;
+                bp[i*3+1] = 0;
+                bp[i*3+2] = Math.sin(a) * r;
+            }
+        }
+        bubbles.geo.attributes.position.needsUpdate = true;
+        bubbles.pts.material.opacity = 0.3 + cGlow * 0.3;
+
+        // --- Bottle animations ---
+        bottles.forEach((b) => {
+            if (b.pouring) {
+                b.pourTime += dt;
+                const t = Math.min(b.pourTime / POUR_TIME, 1);
+                const ease = t * t * (3 - 2 * t);
+                const target = cauldron.group.position.clone();
+                target.y += 0.6;
+                b.group.position.lerpVectors(b.pourStartPos, target, ease);
+                b.group.scale.setScalar((1 - ease * 0.7) * 1.0);
+                b.group.rotation.z = ease * Math.PI * 0.5 * (b.index < 2 ? 1 : -1);
+                b.bodyMat.opacity = 0.3 * (1 - ease);
+                b.liqMat.opacity = 0.55 * (1 - ease * 0.5);
+                b.light.intensity = 0.3 + ease * 1.5;
+
+                if (t >= 1 && b.alive) {
+                    b.alive = false;
+                    scene.remove(b.group);
+                    const cPos = cauldron.group.position.clone();
+                    cPos.y += 0.5;
+                    createExplosion(cPos, b.color, 25);
+                    createSteam(cPos, b.color);
+                    triggerFlash(0x66ffaa, 0.2);
+                    shakeAmount = 0.1;
+                    playBubblePop();
+                    cauldronGlow = Math.min(1, cauldronGlow + 0.15);
+                }
+            } else if (b.alive) {
+                // Fade in
+                b.fadeIn = Math.min(b.fadeIn + dt * 4.0, 1);
+                const slot = BOTTLE_SLOTS[b.index];
+
+                // Shake on wrong match
+                let shakeX = 0;
+                if (b.shakeTime > 0) {
+                    b.shakeTime -= dt;
+                    shakeX = Math.sin(b.shakeTime * 50) * 0.08 * b.shakeTime;
+                }
+
+                // Float bob
+                const bobY = Math.sin(elapsed * 1.4 + b.bobOffset) * 0.05;
+                b.group.position.set(slot.x + shakeX, slot.y + bobY, slot.z);
+                b.group.scale.setScalar(b.fadeIn);
+
+                // Pulse when selected
+                if (b.selected) {
+                    const pulse = 0.5 + Math.sin(elapsed * 4) * 0.2;
+                    b.bodyMat.emissiveIntensity = pulse;
+                    b.liqMat.emissiveIntensity = pulse + 0.1;
+                    b.light.intensity = 0.6 + Math.sin(elapsed * 4) * 0.3;
+                }
+
+                // Text fade for difficulty
+                if (b.textVisible === 'fade') {
+                    if (stateTimer > 2.0) {
+                        b.sprite.material.opacity = Math.max(0, b.sprite.material.opacity - dt * 1.0);
+                    }
+                }
+
+                // Gentle rotation
+                b.group.rotation.y = Math.sin(elapsed * 0.3 + b.bobOffset) * 0.15;
+            } else {
+                // Fade out dead bottles
+                b.group.scale.multiplyScalar(0.92);
+                b.bodyMat.opacity *= 0.9;
+                b.liqMat.opacity *= 0.9;
+                b.light.intensity *= 0.9;
+                if (b.bodyMat.opacity < 0.005) {
+                    scene.remove(b.group);
+                }
+            }
+        });
+
+        // --- Explosions ---
+        explosions = explosions.filter(ex => {
+            ex.life -= dt * 2.0;
+            ex.mesh.material.opacity = Math.max(0, ex.life);
+            const p = ex.mesh.geometry.attributes.position.array;
+            for (let i = 0; i < ex.vels.length; i++) {
+                p[i*3]   += ex.vels[i].x * dt;
+                p[i*3+1] += ex.vels[i].y * dt;
+                p[i*3+2] += ex.vels[i].z * dt;
+                ex.vels[i].multiplyScalar(0.96);
+                ex.vels[i].y -= dt * 2.0;
+            }
+            ex.mesh.geometry.attributes.position.needsUpdate = true;
+            if (ex.life <= 0) { scene.remove(ex.mesh); return false; }
+            return true;
+        });
+
+        // --- Steam puffs ---
+        steamPuffs = steamPuffs.filter(sp => {
+            sp.life -= dt * 1.6;
+            sp.mat.opacity = Math.max(0, sp.life * 0.35);
+            const s = 1 + (1 - sp.life) * 4;
+            sp.mesh.scale.set(s, s, s);
+            sp.mesh.position.y += dt * 0.5;
+            if (sp.life <= 0) { scene.remove(sp.mesh); return false; }
+            return true;
+        });
+
+        // --- Flash decay ---
+        if (flashPlane.mat.opacity > 0) {
+            flashPlane.mat.opacity *= Math.pow(0.005, dt);
+            if (flashPlane.mat.opacity < 0.003) flashPlane.mat.opacity = 0;
+        }
+
+        // --- Screen shake ---
+        if (shakeAmount > 0.003) {
+            camera.position.x = cameraBase.x + (Math.random() - 0.5) * shakeAmount;
+            camera.position.y = cameraBase.y + (Math.random() - 0.5) * shakeAmount;
+            shakeAmount *= Math.pow(0.01, dt);
+        } else {
+            shakeAmount = 0;
+            camera.position.x = cameraBase.x;
+            camera.position.y = cameraBase.y;
+        }
+
+        // --- Key light pulse ---
+        keyLight.intensity = 1.0 + Math.sin(elapsed * 0.9) * 0.2 + cauldronGlow * 0.4;
+
+        // --- State machine ---
+        if (state === 'playing') {
+            roundTimer -= dt;
+            $timerFill.style.width = Math.max(0, roundTimer / ROUND_TIME * 100) + '%';
+            if (roundTimer <= 0) handleTimeout();
+        }
+
+        if (state === 'pouring') {
+            // Wait for pour animation to finish
+            const allDone = !bottles.some(b => b.pouring && b.alive);
+            if (allDone && stateTimer >= POUR_TIME + 0.3) {
+                state = 'feedback';
+                stateTimer = 0;
+            }
+        }
+
+        if (state === 'feedback') {
+            if (stateTimer >= FEEDBACK_PAUSE) {
+                advanceRound();
+            }
+        }
+
+        if (state === 'cascade' && stateTimer >= CASCADE_TIME) {
+            showResults();
+        }
+
+        renderer.render(scene, camera);
+    }
+
+    // ==================== BOOT ====================
+    async function boot() {
+        try {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            await initAudio();
+        } catch (err) {
+            console.warn('Audio init failed:', err);
+        }
+
+        $loading.classList.add('done');
+        state = 'title';
+    }
+
+    update();
+    boot();
+    </script>
+</body>
+</html>
