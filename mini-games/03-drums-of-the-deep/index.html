@@ -286,7 +286,7 @@
     const TAP_TIMEOUT     = 8.0;
     const FEEDBACK_PAUSE  = 1.3;
     const CASCADE_TIME    = 2.5;
-    const SPEAK_RATE      = 0.82;
+    const SPEAK_RATE      = 0.92;
     const WORD_FADE_DELAY = 2.0;
 
     // ==================== STATE ====================
@@ -647,13 +647,48 @@
     }
 
     // ==================== SPEECH SYNTHESIS ====================
+    let selectedVoice = null;
+
+    // Pick the highest-quality English voice available on this device.
+    // Default/compact voices sound robotic; enhanced & Google voices are far better.
+    function pickBestVoice() {
+        if (!('speechSynthesis' in window)) return;
+        const voices = speechSynthesis.getVoices();
+        const en = voices.filter(v => v.lang.startsWith('en'));
+        if (!en.length) return;
+
+        // 1) iOS/macOS "Enhanced" or "Premium" voices (very natural)
+        selectedVoice = en.find(v => /enhanced|premium/i.test(v.name));
+        if (selectedVoice) return;
+
+        // 2) Google voices on Chrome (good quality)
+        selectedVoice = en.find(v => /google.*us english/i.test(v.name));
+        if (selectedVoice) return;
+        selectedVoice = en.find(v => /google/i.test(v.name));
+        if (selectedVoice) return;
+
+        // 3) Microsoft Online voices on Edge (natural)
+        selectedVoice = en.find(v => /online.*natural/i.test(v.name));
+        if (selectedVoice) return;
+
+        // 4) Any US English voice
+        selectedVoice = en.find(v => v.lang === 'en-US');
+        if (selectedVoice) return;
+
+        // 5) Any English voice
+        selectedVoice = en[0];
+    }
+
     function initSpeech() {
         return new Promise(resolve => {
             if (!('speechSynthesis' in window)) { resolve(); return; }
+
+            function done() { pickBestVoice(); resolve(); }
+
             const voices = speechSynthesis.getVoices();
-            if (voices.length > 0) { resolve(); return; }
-            speechSynthesis.addEventListener('voiceschanged', () => resolve(), { once: true });
-            setTimeout(resolve, 2000);
+            if (voices.length > 0) { done(); return; }
+            speechSynthesis.addEventListener('voiceschanged', done, { once: true });
+            setTimeout(done, 2000);
         });
     }
 
@@ -664,6 +699,7 @@
         if (!('speechSynthesis' in window)) return;
         const u = new SpeechSynthesisUtterance(' ');
         u.volume = 0.01;
+        if (selectedVoice) u.voice = selectedVoice;
         speechSynthesis.speak(u);
         document.removeEventListener('touchend', unlockSpeech);
         document.removeEventListener('click', unlockSpeech);
@@ -678,9 +714,10 @@
         // and avoids Chrome bug where cancel() eats the next speak()
         setTimeout(() => {
             const utt = new SpeechSynthesisUtterance(word);
+            if (selectedVoice) utt.voice = selectedVoice;
             utt.lang = 'en-US';
             utt.rate = SPEAK_RATE;
-            utt.pitch = 0.9;
+            utt.pitch = 1.0;
             utt.volume = 1.0;
             speechSynthesis.speak(utt);
         }, 150);
