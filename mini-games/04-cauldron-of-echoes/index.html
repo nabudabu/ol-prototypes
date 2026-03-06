@@ -1281,16 +1281,19 @@
     }
 
     // ==================== BOOT ====================
-    async function boot() {
-        try {
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            await loadWordAudio();
-        } catch (err) {
-            console.warn('Audio loading failed:', err);
-        }
-
+    function boot() {
+        // Show title immediately — don't block on audio loading.
+        // AudioContext.decodeAudioData works even while suspended,
+        // so we can preload buffers before the first user gesture.
         $loading.classList.add('done');
         state = 'title';
+
+        try {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            loadWordAudio(); // fire-and-forget; loads in background
+        } catch (err) {
+            console.warn('Audio init failed:', err);
+        }
     }
 
     update();
