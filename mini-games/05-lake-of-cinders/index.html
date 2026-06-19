@@ -17,17 +17,18 @@
 
         Modality chain (per curriculum-mapping.md):
           Auditory (hear /s/ from the bursting bubble)
-            → Tactile (trace the S on the rune-slate)
+            → Tactile (trace the S on the rune-slate; accuracy % scores the cast)
             → Speech (say the letter's name "S")
-            → world responds (orb is summoned)
+            → world responds (the S + sound seal into a crystal → satchel inventory)
 
         Difficulty progression:
           Capture 1 (Supported):   glowing S outline shown to trace
           Later captures (Indep.): no outline — UNLESS a trace fails, then the
                                     mentor reveals the outline to trace (per PDF)
 
-        Loop: hear → tap a risen spark → trace S → say "S" → orb to the shelf.
-              Collect as many S-/s/ orbs as you can in 30 seconds.
+        Loop: hear → tap a risen spark → trace S (graded %) → say "S" → a crystal
+              vessel flies to the bottom-right satchel. A wrong name makes the
+              drawn S blow away as smoke (try again). Collect as many in 30s.
     -->
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -258,6 +259,7 @@
             user-select: none;
         }
         #say-rune.listening { animation: rune-listen 0.7s ease-in-out infinite; }
+        #say-rune.wrong { animation: rune-wrong 0.55s ease; }
         #mic-ring {
             margin-top: 18px;
             width: 56px; height: 56px;
@@ -322,6 +324,48 @@
             0%,100% { transform: scale(1.04); }
             50%     { transform: scale(1.12); }
         }
+        @keyframes rune-wrong {
+            0%   { transform: translateX(0); }
+            15%  { transform: translateX(-12px); color: #ff7a7a; text-shadow: 0 0 30px rgba(255,90,90,0.8); }
+            35%  { transform: translateX(10px); }
+            55%  { transform: translateX(-7px); color: #ff7a7a; }
+            75%  { transform: translateX(5px); }
+            100% { transform: translateX(0); }
+        }
+
+        /* ---------- Satchel inventory (bottom-right) ---------- */
+        #inventory {
+            position: fixed;
+            right: max(env(safe-area-inset-right, 10px), 10px);
+            bottom: max(env(safe-area-inset-bottom, 12px), 12px);
+            width: 130px;
+            display: none;
+            flex-wrap: wrap-reverse;
+            justify-content: flex-end;
+            align-content: flex-end;
+            gap: 6px;
+            z-index: 12;
+            pointer-events: none;
+        }
+        .inv-crystal {
+            width: 25px; height: 33px;
+            display: flex; align-items: center; justify-content: center;
+            font-family: 'Cinzel Decorative', serif;
+            font-size: 13px; font-weight: 700;
+            color: #fff;
+            text-shadow: 0 0 4px rgba(0,0,0,0.6);
+            clip-path: polygon(50% 0, 100% 33%, 78% 100%, 22% 100%, 0 33%);
+            background: linear-gradient(160deg, rgba(233,204,255,0.6), rgba(192,96,255,0.4));
+            box-shadow: 0 0 10px rgba(192,96,255,0.6);
+            animation: inv-pop 0.4s cubic-bezier(.2,1.4,.4,1);
+        }
+        .inv-crystal.pure   { background: linear-gradient(160deg, rgba(255,245,200,0.75), rgba(255,180,60,0.45)); box-shadow: 0 0 13px rgba(255,200,80,0.8); }
+        .inv-crystal.clear  { background: linear-gradient(160deg, rgba(233,204,255,0.6), rgba(192,96,255,0.45)); box-shadow: 0 0 12px rgba(192,96,255,0.75); }
+        .inv-crystal.cloudy { background: linear-gradient(160deg, rgba(200,190,210,0.45), rgba(138,111,174,0.35)); box-shadow: 0 0 7px rgba(138,111,174,0.5); }
+        @keyframes inv-pop {
+            0%   { transform: scale(0) translateY(-14px); opacity: 0; }
+            100% { transform: scale(1) translateY(0); opacity: 1; }
+        }
     </style>
 </head>
 <body>
@@ -333,6 +377,9 @@
 
     <div id="caption"></div>
     <div id="hunt-hint">Tap a rising spark to capture its sound</div>
+
+    <!-- Satchel: captured S crystals, bottom-right -->
+    <div id="inventory"></div>
 
     <!-- Rune slate -->
     <div id="overlay-dim"></div>
@@ -404,6 +451,8 @@
     let activeBubble = null;        // the spark currently being captured
     let shakeAmount  = 0;
     let introStep    = 0;
+    let traceAccuracy = 0;          // 0..1 quality of the most recent S trace
+    let micBlocked   = false;       // set if the browser denies the microphone
 
     // ==================== THREE.JS SCENE ====================
     const scene = new THREE.Scene();
@@ -444,7 +493,7 @@
     }
 
     // ==================== LIGHTS ====================
-    const ambLight = new THREE.AmbientLight(0x2a1208, 0.6);
+    const ambLight = new THREE.AmbientLight(0x4a3320, 1.05);
     scene.add(ambLight);
     // Warm glow rising from the lava
     const lavaLight = new THREE.PointLight(0xff6a1e, 2.2, 30);
@@ -454,12 +503,15 @@
     lavaLight2.position.set(2.5, 0.0, -5);
     scene.add(lavaLight2);
     // Cool moonlight from above-left for contrast
-    const moon = new THREE.DirectionalLight(0x5566aa, 0.4);
+    const moon = new THREE.DirectionalLight(0x8899cc, 0.7);
     moon.position.set(-4, 6, 4);
     scene.add(moon);
-    // Warm fill from the camera side so the mage figures read against the lake
-    const figFill = new THREE.PointLight(0xffd0a0, 1.1, 9);
-    figFill.position.set(-0.3, 1.4, 3.4);
+    // Warm key + cool fill from the camera side so the two mages read clearly
+    const figKey = new THREE.PointLight(0xffe0b8, 2.6, 13);
+    figKey.position.set(-0.4, 2.0, 3.6);
+    scene.add(figKey);
+    const figFill = new THREE.PointLight(0xb0c0ff, 1.2, 11);
+    figFill.position.set(2.0, 1.2, 3.2);
     scene.add(figFill);
 
     // ==================== ROCKY SHORE ====================
@@ -555,6 +607,7 @@
     }
     const sGlyphTex = createGlyphTexture('S', SPARK_COL);
     const sPhonTex  = createGlyphTexture('/s/', 0xffcc66, true);
+    const sSmokeTex = createGlyphTexture('S', 0x9a8fa0);   // grey — for a failed cast blowing away
 
     // soft radial glow sprite (gives the sparks a visible halo against the lava)
     function createRadialTex() {
@@ -573,13 +626,17 @@
     // ==================== MAGE FIGURES ====================
     function buildMage(opts) {
         const g = new THREE.Group();
-        const robeMat = new THREE.MeshStandardMaterial({ color: opts.robe, roughness: 0.85, metalness: 0.05 });
+        // self-lit robe so the figures stay readable even in the dark scene
+        const robeMat = new THREE.MeshStandardMaterial({
+            color: opts.robe, roughness: 0.8, metalness: 0.05,
+            emissive: opts.robe, emissiveIntensity: 0.28,
+        });
         const robe = new THREE.Mesh(new THREE.ConeGeometry(opts.scale*0.32, opts.scale*1.0, 14), robeMat);
         robe.position.y = opts.scale*0.5;
         g.add(robe);
         const head = new THREE.Mesh(
             new THREE.SphereGeometry(opts.scale*0.15, 16, 14),
-            new THREE.MeshStandardMaterial({ color: 0xe8c9a0, roughness: 0.7 })
+            new THREE.MeshStandardMaterial({ color: 0xf2d6b0, roughness: 0.6, emissive: 0x3a2a1e, emissiveIntensity: 0.3 })
         );
         head.position.y = opts.scale*1.08;
         g.add(head);
@@ -627,11 +684,11 @@
     // Player (centre) and mentor (left) stand on the shore facing the lava (-z).
     // Kept close to centre so both stay framed even in a narrow portrait frustum.
     const player = buildMage({
-        robe: 0x355a8c, scale: 0.8,
+        robe: 0x4f82c4, scale: 0.8,
         pos: new THREE.Vector3(0.55, -0.5, 1.3), rotY: Math.PI, hatTilt: 0.05,
     });
     const mentor = buildMage({
-        robe: 0x5a3a8c, scale: 1.0, staff: true,
+        robe: 0x8259c8, scale: 1.0, staff: true,
         pos: new THREE.Vector3(-1.05, -0.5, 1.5), rotY: Math.PI - 0.3, hatTilt: -0.08,
     });
 
@@ -756,54 +813,83 @@
         bursts.push({ mesh, vels, life: 1.0 });
     }
 
-    // ==================== COLLECTED ORB SHELF ====================
-    let flyingOrbs = [];   // orbs animating from capture point to the shelf
-    let shelfOrbs  = [];
+    // ==================== CAPTURE: CRYSTAL VESSELS + INVENTORY ====================
+    // A successful cast seals the S + its /s/ sound into a glass crystal that flies
+    // to the satchel inventory in the bottom-right corner of the screen.
+    let flyingOrbs = [];   // crystals animating from the cast point toward the satchel
 
-    function shelfSlotPos(i) {
-        // a row low and close to camera (reads as a shelf at the bottom of screen)
-        const perRow = 7;
-        const col = i % perRow, row = Math.floor(i / perRow);
-        const x = (col - (perRow-1)/2) * 0.62;
-        return new THREE.Vector3(x, -0.05 - row*0.0, 3.7 - row*0.55);
+    // Capture quality scales with how accurately the S was traced.
+    function qualityTier(acc) {
+        if (acc >= 0.85) return { name: 'Pure',   col: 0xffd66e, glow: 0xffe9a8 };
+        if (acc >= 0.62) return { name: 'Clear',  col: 0xc060ff, glow: 0xe9ccff };
+        return                   { name: 'Cloudy', col: 0x8a6fae, glow: 0xb9a6d6 };
     }
 
-    function makeOrbMesh() {
+    function makeCrystalMesh(acc) {
+        const tier = qualityTier(acc);
         const g = new THREE.Group();
-        const shell = new THREE.Mesh(
-            new THREE.SphereGeometry(0.2, 18, 16),
+        const crystal = new THREE.Mesh(
+            new THREE.OctahedronGeometry(0.22, 0),
             new THREE.MeshStandardMaterial({
-                color: SPARK_COL, emissive: SPARK_HOT, emissiveIntensity: 0.6,
-                roughness: 0.15, metalness: 0.3, transparent: true, opacity: 0.55,
+                color: tier.col, emissive: tier.glow, emissiveIntensity: 0.55,
+                roughness: 0.1, metalness: 0.45, transparent: true, opacity: 0.62,
+                flatShading: true,
             })
         );
-        g.add(shell);
-        const core = new THREE.Mesh(
-            new THREE.SphereGeometry(0.1, 12, 12),
-            new THREE.MeshBasicMaterial({ color: 0xffffff })
-        );
-        g.add(core);
+        crystal.scale.y = 1.5;                 // elongated gem
+        g.add(crystal);
         const sLabel = new THREE.Sprite(new THREE.SpriteMaterial({
             map: sGlyphTex, transparent: true, depthTest: false,
         }));
-        sLabel.scale.set(0.34, 0.34, 1);
+        sLabel.scale.set(0.26, 0.26, 1);
         g.add(sLabel);
-        const light = new THREE.PointLight(SPARK_COL, 0.5, 2);
+        const light = new THREE.PointLight(tier.col, 0.7, 2.6);
         g.add(light);
         scene.add(g);
         return g;
     }
 
-    function captureOrb(fromPos) {
+    // world point near the player's head — where the cast resolves
+    function castPos() {
+        const v = new THREE.Vector3();
+        player.group.getWorldPosition(v);
+        v.y += 1.0; v.z += 0.15;
+        return v;
+    }
+
+    function captureCrystal(fromPos, acc) {
         score++;
         $scoreNum.textContent = score;
-        const g = makeOrbMesh();
+        const tier = qualityTier(acc);
+        const g = makeCrystalMesh(acc);
         g.position.copy(fromPos);
-        const dest = shelfSlotPos(Math.min(shelfOrbs.length, SHELF_MAX - 1));
-        flyingOrbs.push({ g, from: fromPos.clone(), to: dest, t: 0, bob: Math.random()*6.28 });
+        const dest = new THREE.Vector3(2.6, 0.1, 4.4);   // toward the bottom-right satchel
+        flyingOrbs.push({ g, from: fromPos.clone(), to: dest, t: 0, acc, toInventory: true });
         playCaptureChime();
-        createBurst(fromPos, SPARK_COL, 26);
-        triggerFlash(SPARK_COL, 0.18);
+        createBurst(fromPos, tier.col, 20 + Math.round(acc * 26));
+        triggerFlash(tier.glow, 0.14 + acc * 0.12);
+    }
+
+    function addInventoryChip(acc) {
+        const tier = qualityTier(acc);
+        const el = document.createElement('div');
+        el.className = 'inv-crystal ' + tier.name.toLowerCase();
+        el.textContent = 'S';
+        $inventory.appendChild(el);
+        while ($inventory.children.length > SHELF_MAX) $inventory.removeChild($inventory.firstChild);
+    }
+
+    // ==================== SMOKE LETTER (failed name) ====================
+    // When the spoken name is wrong, the drawn S turns to smoke and blows away.
+    let smokeLetters = [];
+    function spawnSmokeLetter(pos) {
+        const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+            map: sSmokeTex, transparent: true, opacity: 0.9, depthTest: false,
+        }));
+        sp.position.copy(pos);
+        sp.scale.set(0.7, 0.7, 1);
+        scene.add(sp);
+        smokeLetters.push({ sp, life: 1.0, vx: 0.7 + Math.random()*0.5, vy: 0.45 });
     }
 
     // ==================== FLASH ====================
@@ -824,7 +910,7 @@
 
     // ==================== AUDIO ====================
     let audioCtx = null;
-    let droneOsc = null, droneGain = null;
+    let ambienceOn = false;
     let sBuffer = null;
 
     async function loadAudio() {
@@ -851,20 +937,37 @@
         src.start();
     }
 
-    function startDrone() {
-        if (!audioCtx || droneOsc) return;
-        droneOsc = audioCtx.createOscillator();
-        droneGain = audioCtx.createGain();
+    // Lava bubbling ambience — a steady trickle of "blup" pops instead of a drone hum.
+    function playBubbleBlup(vol) {
+        if (!audioCtx) return;
+        const t = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
         const filter = audioCtx.createBiquadFilter();
-        droneOsc.type = 'sawtooth';
-        droneOsc.frequency.value = 46;
         filter.type = 'lowpass';
-        filter.frequency.value = 120;
-        droneGain.gain.value = 0;
-        droneOsc.connect(filter); filter.connect(droneGain); droneGain.connect(audioCtx.destination);
-        droneOsc.start();
-        droneGain.gain.linearRampToValueAtTime(0.05, audioCtx.currentTime + 2);
+        filter.frequency.value = 500 + Math.random() * 600;
+        const f0 = 90 + Math.random() * 200;
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(f0 * 1.9, t);          // quick downward "blup"
+        osc.frequency.exponentialRampToValueAtTime(f0, t + 0.12);
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.linearRampToValueAtTime(vol || (0.04 + Math.random() * 0.05), t + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+        osc.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
+        osc.start(t); osc.stop(t + 0.24);
     }
+
+    function startAmbience() {
+        if (!audioCtx || ambienceOn) return;
+        ambienceOn = true;
+        const loop = () => {
+            if (!ambienceOn || !audioCtx) return;
+            playBubbleBlup();
+            setTimeout(loop, 140 + Math.random() * 380);    // overlapping bubbles
+        };
+        loop();
+    }
+    function stopAmbience() { ambienceOn = false; }
 
     function tone(freq, dur, type, vol, delay) {
         if (!audioCtx) return;
@@ -902,6 +1005,7 @@
     const $sayPanel  = document.getElementById('say-panel');
     const $sayRune   = document.getElementById('say-rune');
     const $sayHint   = document.getElementById('say-hint');
+    const $inventory = document.getElementById('inventory');
     const slateCanvas = document.getElementById('slate-canvas');
 
     function showCaption(html) { $caption.innerHTML = html; $caption.classList.add('visible'); }
@@ -920,6 +1024,7 @@
         state = 'intro';
         introStep = 0;
         $scoreWrap.style.display = 'flex';
+        $inventory.style.display = 'flex';
         $exitBtn.classList.add('visible');
         showCaption(INTRO[0]);
         spawnBubble(true);            // a demo spark for the opening line
@@ -946,11 +1051,11 @@
         driftGlyphs.push({ sp, life: 1.6, vy: 0.25, grow: true });
         playTraceDone();
         setTimeout(() => {
-            const orb = makeOrbMesh();
+            const crystal = makeCrystalMesh(0.95);
             const from = tip.clone(); from.y += 0.4;
-            orb.position.copy(from);
-            // demo orb just floats up and fades (doesn't count toward score)
-            flyingOrbs.push({ g: orb, from, to: from.clone().add(new THREE.Vector3(0,1.4,1)), t: 0, demo: true, bob: 0 });
+            crystal.position.copy(from);
+            // demo crystal just floats up and fades (doesn't count toward score)
+            flyingOrbs.push({ g: crystal, from, to: from.clone().add(new THREE.Vector3(0,1.4,1)), t: 0, demo: true });
             playCaptureChime();
             createBurst(from, SPARK_COL, 20);
         }, 600);
@@ -1053,7 +1158,25 @@
     }
     const S_CURVE = catmull(S_PATH, 16);
 
-    function drawSlate() {
+    // How faithfully did the stroke follow the ideal S? Average distance of each
+    // stroke sample to the nearest point on the canonical curve → 0..1 accuracy.
+    function computeTraceAccuracy() {
+        if (stroke.length < 2) return 0;
+        let sum = 0;
+        for (const p of stroke) {
+            let best = Infinity;
+            for (const c of S_CURVE) {
+                const dx = p.x - c.x, dy = p.y - c.y;
+                const d = dx*dx + dy*dy;
+                if (d < best) best = d;
+            }
+            sum += Math.sqrt(best);
+        }
+        const avg = sum / stroke.length;
+        return Math.max(0, Math.min(1, 1 - avg / 0.12));   // avg 0 → 100%, ≥0.12 → 0%
+    }
+
+    function drawSlate(doneCol) {
         const ctx = slateCanvas.getContext('2d');
         const S = slateSize;
         ctx.clearRect(0, 0, S, S);
@@ -1091,9 +1214,14 @@
 
         // player's stroke
         if (stroke.length > 1) {
-            const grad = ctx.createLinearGradient(0,0,S,S);
-            grad.addColorStop(0, '#ffd9a8'); grad.addColorStop(1, '#d6a0ff');
-            ctx.strokeStyle = grad;
+            if (doneCol) {
+                const c = new THREE.Color(doneCol);
+                ctx.strokeStyle = `rgb(${c.r*255|0},${c.g*255|0},${c.b*255|0})`;
+            } else {
+                const grad = ctx.createLinearGradient(0,0,S,S);
+                grad.addColorStop(0, '#ffd9a8'); grad.addColorStop(1, '#d6a0ff');
+                ctx.strokeStyle = grad;
+            }
             ctx.lineWidth = S * 0.05;
             ctx.lineCap = 'round'; ctx.lineJoin = 'round';
             ctx.shadowColor = 'rgba(214,160,255,0.9)'; ctx.shadowBlur = S*0.05;
@@ -1124,7 +1252,7 @@
         stroke.push(slatePoint(e));
         checkpointCheck();
         drawSlate();
-        if (nextIdx >= S_PATH.length) traceSuccess();
+        // success is evaluated on lift (pointerup) so the whole stroke can be scored
     }
     function onSlateUp(e) {
         if (state !== 'tracing') return;
@@ -1147,10 +1275,15 @@
 
     function traceSuccess() {
         if (state !== 'tracing') return;
+        traceAccuracy = computeTraceAccuracy();
         captureCount++;
         playTraceDone();
-        closeSlate();
-        openSay();
+        const pct = Math.round(traceAccuracy * 100);
+        const tier = qualityTier(traceAccuracy);
+        state = 'tracing-done';                 // freeze input during the reveal
+        $slateHint.innerHTML = `<b style="color:#fff;font-size:1.5em">${pct}%</b> &middot; ${tier.name} sigil`;
+        drawSlate(tier.col);                    // recolour the completed stroke to its quality
+        setTimeout(() => { if (state === 'tracing-done') { closeSlate(); openSay(); } }, 900);
     }
 
     function traceFail() {
@@ -1184,36 +1317,64 @@
         state = 'saying';
         sayResolved = false;
         $sayHint.textContent = 'Tap the rune & say “ess”';
-        $sayRune.classList.remove('listening');
+        $sayRune.classList.remove('listening', 'wrong');
         $sayPanel.classList.add('visible');
         startListening();
     }
 
+    // A fresh recognition instance each call; onend re-arms it so a wrong/ignored
+    // first try never "sticks". Tapping the rune is always the reliable fallback.
     function startListening() {
+        if (micBlocked || sayResolved || state !== 'saying') return;
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SR) return;                  // tap is the reliable fallback
+        if (!SR) return;
         try {
             recognition = new SR();
             recognition.lang = 'en-US';
             recognition.interimResults = true;
-            recognition.maxAlternatives = 3;
+            recognition.maxAlternatives = 5;
             $sayRune.classList.add('listening');
             $sayHint.textContent = 'Listening… say “ess”';
             recognition.onresult = (ev) => {
-                const txt = Array.from(ev.results).map(r => r[0].transcript).join(' ').toLowerCase();
-                if (/\b(s|es|ess|yes|esse)\b/.test(txt) || txt.replace(/[^a-z]/g,'').includes('s')) {
-                    saySuccess();
+                const last = ev.results[ev.results.length - 1];
+                const txt = Array.from(last).map(a => a.transcript).join(' ').toLowerCase();
+                const norm = txt.replace(/[^a-z]/g, '');
+                const isS = /\b(s|es|ess|esse|yes)\b/.test(txt) ||
+                            norm === 's' || norm === 'es' || norm === 'ess';
+                if (isS) { saySuccess(); return; }
+                if (last.isFinal) sayWrong();          // said a word, but not the letter's name
+            };
+            recognition.onerror = (e) => {
+                if (e.error === 'not-allowed' || e.error === 'service-not-allowed') micBlocked = true;
+            };
+            recognition.onend = () => {
+                $sayRune.classList.remove('listening');
+                if (state === 'saying' && !sayResolved && !micBlocked) {
+                    setTimeout(() => startListening(), 250);   // keep listening
                 }
             };
-            recognition.onerror = () => { $sayRune.classList.remove('listening'); };
-            recognition.onend   = () => { $sayRune.classList.remove('listening'); };
             recognition.start();
         } catch (e) { /* fall back to tap */ }
     }
 
     function stopListening() {
-        if (recognition) { try { recognition.stop(); } catch(e){} recognition = null; }
+        if (recognition) {
+            recognition.onend = null;                 // prevent auto-restart
+            try { recognition.stop(); } catch(e){}
+            recognition = null;
+        }
         $sayRune.classList.remove('listening');
+    }
+
+    // Wrong name: the drawn S forms smoke and blows away — then we keep listening.
+    function sayWrong() {
+        if (sayResolved || state !== 'saying') return;
+        playSoftFail();
+        spawnSmokeLetter(castPos());
+        $sayRune.classList.remove('listening');
+        $sayRune.classList.add('wrong');
+        $sayHint.textContent = 'That wasn’t “ess” — try again';
+        setTimeout(() => $sayRune.classList.remove('wrong'), 600);
     }
 
     function saySuccess() {
@@ -1223,12 +1384,9 @@
         $sayPanel.classList.remove('visible');
         $dim.classList.remove('visible');
 
-        // summon the orb from where the spark was held, fly it to the shelf
-        const from = (activeBubble && activeBubble.heldFrom)
-            ? activeBubble.heldFrom.clone()
-            : new THREE.Vector3(0.4, 0.6, 1.6);
+        // seal the S + its sound into a crystal at the player, send it to the satchel
         if (activeBubble) { removeBubble(activeBubble); activeBubble = null; }
-        captureOrb(from);
+        captureCrystal(castPos(), traceAccuracy);
 
         state = 'hunt';                 // back to the lake
         if (huntTimer <= 0) endHunt();
@@ -1253,7 +1411,7 @@
         else if (score >= 4) { $resLbl.textContent = 'The Lake Answers'; $resLbl.style.color = '#d6a0ff'; }
         else                 { $resLbl.textContent = 'Embers Gathered'; $resLbl.style.color = '#ffb066'; }
         $resScore.textContent = score;
-        $resSub.textContent = score === 1 ? 'S-/s/ orb bound' : 'S-/s/ orbs bound';
+        $resSub.textContent = score === 1 ? 'S crystal sealed' : 'S crystals sealed';
         showScreenEl($result);
     }
 
@@ -1264,7 +1422,9 @@
         stopListening();
         clearBubbles();
         state = 'title';
+        stopAmbience();
         $scoreWrap.style.display = 'none';
+        $inventory.style.display = 'none';
         $timerWrap.style.display = 'none';
         $exitBtn.classList.remove('visible');
         $huntHint.classList.remove('visible');
@@ -1280,8 +1440,9 @@
         score = 0;
         captureCount = 0;
         $scoreNum.textContent = '0';
-        shelfOrbs.forEach(o => scene.remove(o)); shelfOrbs = [];
+        $inventory.innerHTML = '';
         flyingOrbs.forEach(o => scene.remove(o.g)); flyingOrbs = [];
+        smokeLetters.forEach(s => scene.remove(s.sp)); smokeLetters = [];
         hideScreenEl($title);
         hideScreenEl($result);
         startIntro();
@@ -1296,7 +1457,7 @@
         if (e.target === slateCanvas) return;          // handled by slate listeners
         if (e.target === $sayRune) return;             // handled by rune listener
         await initAudio();
-        startDrone();
+        startAmbience();
 
         switch (state) {
             case 'title':
@@ -1398,27 +1559,34 @@
             return true;
         });
 
-        // --- Flying orbs to shelf ---
+        // --- Flying crystals to the satchel ---
         flyingOrbs = flyingOrbs.filter(o => {
-            o.t += dt * 1.4;
+            o.t += dt * 1.3;
             const k = Math.min(o.t, 1);
             const ease = k*k*(3-2*k);
             o.g.position.lerpVectors(o.from, o.to, ease);
-            o.g.position.y += Math.sin(ease*Math.PI) * 0.8;     // arc upward
-            o.g.rotation.y += dt*3;
+            o.g.position.y += Math.sin(ease*Math.PI) * 0.7;     // arc upward
+            o.g.rotation.y += dt*4;
+            if (k >= 0.7) o.g.scale.setScalar(Math.max(0.001, (1 - (k-0.7)/0.3)));  // shrink into the satchel
             if (k >= 1) {
-                if (o.demo) { scene.remove(o.g); }
-                else { shelfOrbs.push(o.g); }
+                scene.remove(o.g);
+                if (o.toInventory) addInventoryChip(o.acc);     // land in the bottom-right satchel
                 return false;
             }
             return true;
         });
 
-        // --- Shelf orbs bob ---
-        shelfOrbs.forEach((o, i) => {
-            const slot = shelfSlotPos(Math.min(i, SHELF_MAX-1));
-            o.position.set(slot.x, slot.y + Math.sin(T*1.6 + i)*0.04, slot.z);
-            o.rotation.y += dt*0.6;
+        // --- Smoke letters (failed name) blowing away ---
+        smokeLetters = smokeLetters.filter(s => {
+            s.life -= dt * 0.6;
+            s.sp.position.x += s.vx * dt;          // wind carries it off
+            s.sp.position.y += s.vy * dt;
+            s.sp.material.opacity = Math.max(0, s.life * 0.9);
+            s.sp.material.rotation += dt * 0.7;
+            const sc = 0.7 + (1 - s.life) * 1.5;
+            s.sp.scale.set(sc, sc, 1);
+            if (s.life <= 0) { scene.remove(s.sp); return false; }
+            return true;
         });
 
         // --- Bursts ---
