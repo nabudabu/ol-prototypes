@@ -1,0 +1,1477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!--
+        Mini-Game #05: Lake of Cinders  (a.k.a. "Dyspell — Lava Bubble")
+        Curriculum: Alphabetic Principle → Phonics / Sound-Symbol correspondence
+                    (with Letter Knowledge — trace S, and Speech output — say "S")
+        Storyboard: "Dyspell Lava Bubble Prototype.pdf"
+
+        Concept (per VISION.md — the reading skill IS the magic):
+          A lake of lava hisses. Each bubble that rises and pops RELEASES the
+          phoneme /s/. To capture that sound's magic you must do what the mentor
+          does: write its symbol (trace S) and speak its name ("S"). Doing so
+          summons the released spark into an orb inscribed with S. The tracing IS
+          the incantation; the spoken name IS the binding. No quiz, no red X — the
+          lake simply answers.
+
+        Modality chain (per curriculum-mapping.md):
+          Auditory (hear /s/ from the bursting bubble)
+            → Tactile (trace the S on the rune-slate)
+            → Speech (say the letter's name "S")
+            → world responds (orb is summoned)
+
+        Difficulty progression:
+          Capture 1 (Supported):   glowing S outline shown to trace
+          Later captures (Indep.): no outline — UNLESS a trace fails, then the
+                                    mentor reveals the outline to trace (per PDF)
+
+        Loop: hear → tap a risen spark → trace S → say "S" → orb to the shelf.
+              Collect as many S-/s/ orbs as you can in 30 seconds.
+    -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Lake of Cinders</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Cinzel:wght@700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            width: 100%; height: 100%;
+            overflow: hidden;
+            background: #0a0503;
+            color: #fff;
+            touch-action: none;
+            -webkit-user-select: none;
+            user-select: none;
+            font-family: 'Cinzel', Georgia, serif;
+        }
+        canvas { display: block; }
+
+        .screen {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 20;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.4s ease;
+        }
+        .screen.visible { opacity: 1; }
+
+        #title-screen {
+            background: radial-gradient(ellipse at center, rgba(40,12,4,0.92), rgba(10,5,3,0.98));
+        }
+        #title-screen h1 {
+            font-family: 'Cinzel Decorative', 'Cinzel', serif;
+            font-size: clamp(26px, 7vw, 52px);
+            letter-spacing: 4px;
+            text-shadow: 0 0 40px rgba(255,140,40,0.55), 0 0 80px rgba(255,90,20,0.25);
+            margin-bottom: 16px;
+            text-align: center;
+            line-height: 1.3;
+            color: #ffb066;
+        }
+        #title-screen .subtitle {
+            font-size: clamp(10px, 2.4vw, 13px);
+            letter-spacing: 3px;
+            color: rgba(255,176,102,0.45);
+            margin-bottom: 36px;
+            text-align: center;
+            padding: 0 24px;
+            text-transform: uppercase;
+        }
+        .prompt {
+            font-size: clamp(12px, 3vw, 16px);
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            animation: breathe 3s ease-in-out infinite;
+            color: rgba(255,176,102,0.5);
+        }
+
+        /* Score (orbs captured) */
+        #score-wrap {
+            position: fixed;
+            top: max(env(safe-area-inset-top, 8px), 8px);
+            left: 50%;
+            transform: translateX(-50%);
+            display: none;
+            align-items: center;
+            gap: 8px;
+            z-index: 10;
+            pointer-events: none;
+            font-size: clamp(15px, 4vw, 20px);
+            letter-spacing: 2px;
+            color: #ffd9a8;
+            text-shadow: 0 0 14px rgba(192,96,255,0.6);
+        }
+        #score-wrap .sigil {
+            color: #d6a0ff;
+            font-family: 'Cinzel Decorative', serif;
+        }
+
+        #timer-wrap {
+            position: fixed;
+            top: calc(max(env(safe-area-inset-top, 8px), 8px) + 30px);
+            left: 50%;
+            transform: translateX(-50%);
+            width: 55%;
+            max-width: 260px;
+            height: 3px;
+            background: rgba(255,255,255,0.06);
+            border-radius: 2px;
+            overflow: hidden;
+            z-index: 10;
+            display: none;
+        }
+        #timer-fill {
+            height: 100%;
+            width: 100%;
+            border-radius: 2px;
+            background: linear-gradient(90deg, #ff4422, #ff8c2a, #c060ff);
+            box-shadow: 0 0 8px rgba(255,140,42,0.5);
+            transition: width 0.1s linear;
+        }
+
+        /* Mentor / instruction caption */
+        #caption {
+            position: fixed;
+            bottom: 9%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: min(86vw, 560px);
+            font-size: clamp(13px, 3.4vw, 18px);
+            line-height: 1.5;
+            letter-spacing: 1px;
+            color: #ffe6cc;
+            text-align: center;
+            z-index: 14;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.4s ease;
+            text-shadow: 0 2px 14px rgba(0,0,0,0.9);
+        }
+        #caption.visible { opacity: 1; }
+        #caption .mentor { color: #c79bff; font-style: italic; }
+        #caption .phon { color: #ffb066; font-weight: bold; letter-spacing: 2px; }
+        #caption .cont {
+            display: block;
+            margin-top: 14px;
+            font-size: clamp(10px, 2.4vw, 12px);
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            color: rgba(255,176,102,0.5);
+            animation: breathe 2.4s ease-in-out infinite;
+        }
+
+        /* Hint shown during the hunt */
+        #hunt-hint {
+            position: fixed;
+            bottom: 6%;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: clamp(10px, 2.4vw, 13px);
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            color: rgba(255,176,102,0.4);
+            z-index: 10;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            text-align: center;
+        }
+        #hunt-hint.visible { opacity: 1; }
+
+        /* ---------- Rune slate (trace the S) ---------- */
+        #overlay-dim {
+            position: fixed; inset: 0;
+            background: rgba(6,3,2,0.55);
+            backdrop-filter: blur(2px);
+            -webkit-backdrop-filter: blur(2px);
+            z-index: 24;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+        #overlay-dim.visible { opacity: 1; pointer-events: auto; }
+
+        .panel {
+            position: fixed;
+            left: 50%; top: 50%;
+            transform: translate(-50%, -50%) scale(0.85);
+            z-index: 25;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease, transform 0.3s cubic-bezier(.2,1.3,.4,1);
+        }
+        .panel.visible { opacity: 1; transform: translate(-50%, -50%) scale(1); pointer-events: auto; }
+
+        .panel-head {
+            font-size: clamp(13px, 3.4vw, 18px);
+            letter-spacing: 2px;
+            color: #ffe6cc;
+            margin-bottom: 14px;
+            text-align: center;
+        }
+        .panel-head b { color: #d6a0ff; font-size: 1.25em; }
+
+        #slate-frame {
+            position: relative;
+            width: min(78vw, 340px);
+            height: min(78vw, 340px);
+            border-radius: 18px;
+            background:
+                radial-gradient(ellipse at 50% 30%, rgba(60,30,55,0.6), rgba(18,10,16,0.92));
+            border: 2px solid rgba(192,96,255,0.4);
+            box-shadow: 0 0 40px rgba(192,96,255,0.25), inset 0 0 40px rgba(0,0,0,0.6);
+            overflow: hidden;
+            touch-action: none;
+        }
+        #slate-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+        .panel-hint {
+            margin-top: 14px;
+            font-size: clamp(10px, 2.4vw, 12px);
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            color: rgba(255,176,102,0.5);
+            text-align: center;
+            min-height: 1.2em;
+        }
+
+        /* ---------- Say-its-name panel ---------- */
+        #say-rune {
+            font-family: 'Cinzel Decorative', 'Cinzel', serif;
+            font-size: min(40vw, 190px);
+            line-height: 1;
+            color: #e9ccff;
+            text-shadow: 0 0 30px rgba(192,96,255,0.8), 0 0 70px rgba(192,96,255,0.4);
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            animation: rune-pulse 1.6s ease-in-out infinite;
+            user-select: none;
+        }
+        #say-rune.listening { animation: rune-listen 0.7s ease-in-out infinite; }
+        #mic-ring {
+            margin-top: 18px;
+            width: 56px; height: 56px;
+            border-radius: 50%;
+            border: 2px solid rgba(192,96,255,0.5);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 26px;
+            color: #d6a0ff;
+            box-shadow: 0 0 18px rgba(192,96,255,0.4);
+        }
+
+        #exit-btn {
+            position: fixed;
+            top: 10px; right: 10px;
+            width: 44px; height: 44px;
+            border: none;
+            background: rgba(255,255,255,0.06);
+            border-radius: 50%;
+            font-family: 'Cinzel', Georgia, serif;
+            font-size: 16px;
+            color: rgba(255,255,255,0.35);
+            cursor: pointer;
+            z-index: 30;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            -webkit-tap-highlight-color: transparent;
+            transition: opacity 0.3s ease, background 0.2s ease;
+        }
+        #exit-btn.visible { display: flex; }
+        #exit-btn:active { background: rgba(255,255,255,0.15); color: rgba(255,255,255,0.7); }
+
+        #result-screen {
+            background: radial-gradient(ellipse at center, rgba(40,12,4,0.9), rgba(10,5,3,0.97));
+        }
+        #result-screen .result-label {
+            font-family: 'Cinzel Decorative', 'Cinzel', serif;
+            font-size: clamp(20px, 5.5vw, 38px);
+            letter-spacing: 3px;
+            margin-bottom: 16px;
+            text-align: center;
+        }
+        #result-screen .result-score {
+            font-size: clamp(38px, 10vw, 60px);
+            letter-spacing: 6px;
+            margin-bottom: 8px;
+            color: #d6a0ff;
+        }
+        #result-screen .result-sub {
+            font-size: clamp(11px, 2.6vw, 14px);
+            letter-spacing: 2px;
+            color: rgba(255,176,102,0.5);
+            margin-bottom: 32px;
+        }
+
+        @keyframes breathe { 0%,100%{opacity:.3} 50%{opacity:.75} }
+        @keyframes rune-pulse {
+            0%,100% { transform: scale(1); text-shadow: 0 0 30px rgba(192,96,255,0.8), 0 0 70px rgba(192,96,255,0.4); }
+            50%     { transform: scale(1.05); text-shadow: 0 0 44px rgba(214,160,255,1), 0 0 100px rgba(192,96,255,0.6); }
+        }
+        @keyframes rune-listen {
+            0%,100% { transform: scale(1.04); }
+            50%     { transform: scale(1.12); }
+        }
+    </style>
+</head>
+<body>
+
+    <button id="exit-btn" aria-label="Exit game">&#x2715;</button>
+
+    <div id="score-wrap"><span class="sigil">S</span><span id="score-num">0</span></div>
+    <div id="timer-wrap"><div id="timer-fill"></div></div>
+
+    <div id="caption"></div>
+    <div id="hunt-hint">Tap a rising spark to capture its sound</div>
+
+    <!-- Rune slate -->
+    <div id="overlay-dim"></div>
+    <div id="slate" class="panel">
+        <div class="panel-head">Trace the symbol of <b>S</b></div>
+        <div id="slate-frame"><canvas id="slate-canvas"></canvas></div>
+        <div class="panel-hint" id="slate-hint">Draw the S to bind the spark</div>
+    </div>
+
+    <!-- Say its name -->
+    <div id="say-panel" class="panel">
+        <div class="panel-head">Now speak its name</div>
+        <div id="say-rune">S</div>
+        <div id="mic-ring">&#x1F399;</div>
+        <div class="panel-hint" id="say-hint">Tap the rune &amp; say &ldquo;ess&rdquo;</div>
+    </div>
+
+    <div id="title-screen" class="screen visible">
+        <h1>Lake of<br>Cinders</h1>
+        <p class="subtitle">Capture the hissing &nbsp;/s/&nbsp; spark</p>
+        <p class="prompt">Tap to Enter</p>
+    </div>
+
+    <div id="result-screen" class="screen">
+        <div class="result-label" id="result-label">Sparks Captured</div>
+        <div class="result-score" id="result-score">0</div>
+        <div class="result-sub" id="result-sub">S-/s/ orbs bound</div>
+        <p class="prompt">Tap to Try Again</p>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <script>
+    // ================================================================
+    //  LAKE OF CINDERS — Mini-Game #05  (Dyspell Lava Bubble)
+    //  Alphabetic Principle → sound-symbol /s/↔S
+    //  Hear /s/ → Trace S → Say "S" → summon the orb.
+    // ================================================================
+
+    // ==================== CONFIG ====================
+    const HUNT_TIME    = 30;        // seconds to capture as many sparks as possible
+    const SPAWN_EVERY  = 1.1;       // seconds between bubble spawns during the hunt
+    const MAX_BUBBLES  = 5;
+    const RISE_TIME    = 2.2;       // bubble rise duration
+    const BLOOM_TIME    = 1.6;      // how long a risen spark stays tappable at apex
+    const SHELF_MAX    = 14;
+
+    const LAVA_HOT   = 0xff7a22;
+    const LAVA_DEEP  = 0x4a1404;
+    const SPARK_COL  = 0xc060ff;    // captured /s/ magic — purple, contrasts the lava
+    const SPARK_HOT  = 0xff66cc;
+
+    // The canonical S as ordered checkpoints (normalized, y-down).
+    // Used both to draw the guide outline and to validate the trace in order.
+    const S_PATH = [
+        [0.70, 0.24], [0.46, 0.15], [0.28, 0.30], [0.42, 0.47],
+        [0.60, 0.56], [0.72, 0.70], [0.52, 0.83], [0.28, 0.77],
+    ];
+    const TRACE_TOL = 0.155;        // hit radius (normalized) — generous for fingers
+
+    // ==================== STATE ====================
+    // states: loading | title | intro | hunt | tracing | saying | results
+    let state        = 'loading';
+    let stateTimer   = 0;
+    let huntTimer    = 0;
+    let spawnTimer   = 0;
+    let score        = 0;
+    let captureCount = 0;           // total successful traces (for supported→independent)
+    let traceAttempts = 0;          // failed attempts on the current spark
+    let activeBubble = null;        // the spark currently being captured
+    let shakeAmount  = 0;
+    let introStep    = 0;
+
+    // ==================== THREE.JS SCENE ====================
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0a0503);
+    scene.fog = new THREE.FogExp2(0x0a0503, 0.026);
+
+    const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 100);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+    document.body.prepend(renderer.domElement);
+
+    // ==================== RESPONSIVE LAYOUT ====================
+    let cameraBase = new THREE.Vector3();
+
+    function updateLayout() {
+        const aspect = innerWidth / innerHeight;
+        camera.aspect = aspect;
+        if (aspect < 0.75) {
+            camera.fov = 62;
+            camera.position.set(0, 1.7, 6.1);
+            camera.lookAt(0, 0.7, -2.2);
+        } else if (aspect < 1.2) {
+            camera.fov = 52;
+            camera.position.set(0, 1.6, 6.0);
+            camera.lookAt(0, 0.6, -2.0);
+        } else {
+            camera.fov = 46;
+            camera.position.set(0, 1.5, 5.6);
+            camera.lookAt(0, 0.5, -2.0);
+        }
+        camera.updateProjectionMatrix();
+        cameraBase.copy(camera.position);
+        renderer.setSize(innerWidth, innerHeight);
+    }
+
+    // ==================== LIGHTS ====================
+    const ambLight = new THREE.AmbientLight(0x2a1208, 0.6);
+    scene.add(ambLight);
+    // Warm glow rising from the lava
+    const lavaLight = new THREE.PointLight(0xff6a1e, 2.2, 30);
+    lavaLight.position.set(0, -0.2, -3);
+    scene.add(lavaLight);
+    const lavaLight2 = new THREE.PointLight(0xff8c2a, 1.4, 22);
+    lavaLight2.position.set(2.5, 0.0, -5);
+    scene.add(lavaLight2);
+    // Cool moonlight from above-left for contrast
+    const moon = new THREE.DirectionalLight(0x5566aa, 0.4);
+    moon.position.set(-4, 6, 4);
+    scene.add(moon);
+    // Warm fill from the camera side so the mage figures read against the lake
+    const figFill = new THREE.PointLight(0xffd0a0, 1.1, 9);
+    figFill.position.set(-0.3, 1.4, 3.4);
+    scene.add(figFill);
+
+    // ==================== ROCKY SHORE ====================
+    const shore = new THREE.Mesh(
+        new THREE.PlaneGeometry(40, 18),
+        new THREE.MeshStandardMaterial({ color: 0x1a120e, roughness: 0.97, metalness: 0.04 })
+    );
+    shore.rotation.x = -Math.PI / 2;
+    shore.position.set(0, -0.5, 3.0);
+    scene.add(shore);
+
+    // scattered rocks along the shore edge
+    (function scatterRocks() {
+        const rockMat = new THREE.MeshStandardMaterial({ color: 0x241812, roughness: 0.95, metalness: 0.05 });
+        const seeds = [
+            [-2.6,-0.35,0.4,0.5],[2.4,-0.4,0.0,0.42],[-1.2,-0.42,-0.6,0.3],
+            [1.5,-0.45,-0.4,0.34],[-3.2,-0.3,1.4,0.6],[3.1,-0.32,1.0,0.55],
+            [0.3,-0.46,-0.7,0.26],[-0.8,-0.44,0.9,0.28],
+        ];
+        seeds.forEach(([x,y,z,s], i) => {
+            const r = new THREE.Mesh(new THREE.DodecahedronGeometry(s, 0), rockMat);
+            r.position.set(x, y, z);
+            r.rotation.set(i*0.7, i*1.3, i*0.5);
+            r.scale.y *= 0.7;
+            scene.add(r);
+        });
+    })();
+
+    // ==================== LAVA LAKE ====================
+    const lava = (function() {
+        const geo = new THREE.PlaneGeometry(44, 30, 40, 28);
+        const mat = new THREE.MeshStandardMaterial({
+            color: LAVA_DEEP, emissive: LAVA_HOT, emissiveIntensity: 0.9,
+            roughness: 0.5, metalness: 0.0,
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.rotation.x = -Math.PI / 2;
+        mesh.position.set(0, -0.62, -9);   // recedes into the distance behind the shore
+        scene.add(mesh);
+        // store base positions for the wave animation
+        const base = geo.attributes.position.array.slice();
+        return { mesh, geo, mat, base };
+    })();
+
+    // Glowing cracks of ember just at the shoreline (near edge of lava)
+    const shoreGlow = new THREE.Mesh(
+        new THREE.PlaneGeometry(44, 3),
+        new THREE.MeshBasicMaterial({ color: 0xff9933, transparent: true, opacity: 0.5 })
+    );
+    shoreGlow.rotation.x = -Math.PI / 2;
+    shoreGlow.position.set(0, -0.6, -1.4);
+    scene.add(shoreGlow);
+
+    // rising ember motes over the lava
+    const embers = (function() {
+        const count = 120;
+        const pos = new Float32Array(count * 3);
+        const meta = [];
+        for (let i = 0; i < count; i++) {
+            pos[i*3]   = (Math.random() - 0.5) * 24;
+            pos[i*3+1] = -0.5 + Math.random() * 5;
+            pos[i*3+2] = -2 - Math.random() * 14;
+            meta.push({ ySpeed: 0.3 + Math.random()*0.8, wob: Math.random()*6.28, wobS: 0.4+Math.random()*0.8 });
+        }
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        const pts = new THREE.Points(geo, new THREE.PointsMaterial({
+            color: 0xff8c3a, size: 0.06, transparent: true, opacity: 0.7,
+            blending: THREE.AdditiveBlending, depthWrite: false,
+        }));
+        scene.add(pts);
+        return { pts, geo, meta };
+    })();
+
+    // ==================== GLYPH TEXTURE HELPER ====================
+    function createGlyphTexture(text, colorHex, italic) {
+        const size = 256;
+        const canvas = document.createElement('canvas');
+        canvas.width = size; canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        const c = new THREE.Color(colorHex);
+        const rgb = `rgb(${c.r*255|0},${c.g*255|0},${c.b*255|0})`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = `${italic ? 'italic ' : ''}bold ${size*0.6}px "Cinzel Decorative", "Cinzel", Georgia, serif`;
+        ctx.shadowColor = rgb; ctx.shadowBlur = 28;
+        ctx.fillStyle = rgb; ctx.globalAlpha = 0.7;
+        for (let i = 0; i < 3; i++) ctx.fillText(text, size/2, size/2);
+        ctx.globalAlpha = 1; ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 8;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(text, size/2, size/2);
+        return new THREE.CanvasTexture(canvas);
+    }
+    const sGlyphTex = createGlyphTexture('S', SPARK_COL);
+    const sPhonTex  = createGlyphTexture('/s/', 0xffcc66, true);
+
+    // soft radial glow sprite (gives the sparks a visible halo against the lava)
+    function createRadialTex() {
+        const s = 128;
+        const cv = document.createElement('canvas'); cv.width = cv.height = s;
+        const ctx = cv.getContext('2d');
+        const g = ctx.createRadialGradient(s/2, s/2, 0, s/2, s/2, s/2);
+        g.addColorStop(0, 'rgba(255,255,255,1)');
+        g.addColorStop(0.3, 'rgba(255,230,190,0.8)');
+        g.addColorStop(1, 'rgba(255,180,120,0)');
+        ctx.fillStyle = g; ctx.fillRect(0, 0, s, s);
+        return new THREE.CanvasTexture(cv);
+    }
+    const glowTex = createRadialTex();
+
+    // ==================== MAGE FIGURES ====================
+    function buildMage(opts) {
+        const g = new THREE.Group();
+        const robeMat = new THREE.MeshStandardMaterial({ color: opts.robe, roughness: 0.85, metalness: 0.05 });
+        const robe = new THREE.Mesh(new THREE.ConeGeometry(opts.scale*0.32, opts.scale*1.0, 14), robeMat);
+        robe.position.y = opts.scale*0.5;
+        g.add(robe);
+        const head = new THREE.Mesh(
+            new THREE.SphereGeometry(opts.scale*0.15, 16, 14),
+            new THREE.MeshStandardMaterial({ color: 0xe8c9a0, roughness: 0.7 })
+        );
+        head.position.y = opts.scale*1.08;
+        g.add(head);
+        // pointed wizard hat
+        const hat = new THREE.Mesh(
+            new THREE.ConeGeometry(opts.scale*0.22, opts.scale*0.5, 14),
+            robeMat
+        );
+        hat.position.y = opts.scale*1.4;
+        hat.rotation.z = opts.hatTilt || 0;
+        g.add(hat);
+        const brim = new THREE.Mesh(
+            new THREE.TorusGeometry(opts.scale*0.2, opts.scale*0.04, 8, 20),
+            robeMat
+        );
+        brim.rotation.x = Math.PI/2;
+        brim.position.y = opts.scale*1.18;
+        g.add(brim);
+
+        let wandTip = null, wandLight = null;
+        if (opts.staff) {
+            const staff = new THREE.Mesh(
+                new THREE.CylinderGeometry(opts.scale*0.018, opts.scale*0.025, opts.scale*1.25, 6),
+                new THREE.MeshStandardMaterial({ color: 0x3a2a18, roughness: 0.8 })
+            );
+            staff.position.set(opts.scale*0.28, opts.scale*0.62, opts.scale*0.05);
+            staff.rotation.z = -0.12;
+            g.add(staff);
+            wandTip = new THREE.Mesh(
+                new THREE.SphereGeometry(opts.scale*0.07, 12, 12),
+                new THREE.MeshBasicMaterial({ color: SPARK_COL })
+            );
+            wandTip.position.set(opts.scale*0.36, opts.scale*1.24, opts.scale*0.05);
+            g.add(wandTip);
+            wandLight = new THREE.PointLight(SPARK_COL, 0.8, 4);
+            wandLight.position.copy(wandTip.position);
+            g.add(wandLight);
+        }
+        g.position.copy(opts.pos);
+        g.rotation.y = opts.rotY || 0;
+        scene.add(g);
+        return { group: g, wandTip, wandLight };
+    }
+
+    // Player (centre) and mentor (left) stand on the shore facing the lava (-z).
+    // Kept close to centre so both stay framed even in a narrow portrait frustum.
+    const player = buildMage({
+        robe: 0x355a8c, scale: 0.8,
+        pos: new THREE.Vector3(0.55, -0.5, 1.3), rotY: Math.PI, hatTilt: 0.05,
+    });
+    const mentor = buildMage({
+        robe: 0x5a3a8c, scale: 1.0, staff: true,
+        pos: new THREE.Vector3(-1.05, -0.5, 1.5), rotY: Math.PI - 0.3, hatTilt: -0.08,
+    });
+
+    // ==================== BUBBLES (the sparks) ====================
+    let bubbles = [];
+
+    function spawnBubble(forced) {
+        if (bubbles.length >= MAX_BUBBLES) return null;
+        const group = new THREE.Group();
+        const mat = new THREE.MeshStandardMaterial({
+            color: 0xff5a1e, emissive: 0xff7a2a, emissiveIntensity: 1.2,
+            roughness: 0.3, metalness: 0.0, transparent: true, opacity: 0.92,
+        });
+        const ball = new THREE.Mesh(new THREE.SphereGeometry(0.26, 18, 16), mat);
+        group.add(ball);
+        // white-hot core + halo so the spark stands out from the lava behind it
+        const core = new THREE.Mesh(
+            new THREE.SphereGeometry(0.11, 12, 12),
+            new THREE.MeshBasicMaterial({ color: 0xfff2d6 })
+        );
+        group.add(core);
+        const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+            map: glowTex, color: 0xffb060, transparent: true, opacity: 0.75,
+            depthTest: false, blending: THREE.AdditiveBlending,
+        }));
+        glow.scale.set(1.3, 1.3, 1);
+        group.add(glow);
+        const light = new THREE.PointLight(0xffae5a, 0.9, 5);
+        group.add(light);
+        // faint /s/ glyph that appears at bloom
+        const glyph = new THREE.Sprite(new THREE.SpriteMaterial({
+            map: sPhonTex, transparent: true, opacity: 0, depthTest: false,
+            blending: THREE.AdditiveBlending,
+        }));
+        glyph.scale.set(0.7, 0.7, 1);
+        glyph.position.y = 0.5;
+        group.add(glyph);
+        const hit = new THREE.Mesh(
+            new THREE.SphereGeometry(0.55, 8, 6),
+            new THREE.MeshBasicMaterial({ visible: false })
+        );
+        group.add(hit);
+
+        // spawn position: somewhere out on the lake surface
+        const x = (Math.random() - 0.5) * 6.0;
+        const z = -2.2 - Math.random() * 4.0;
+        const apex = 1.3 + Math.random() * 1.3;   // rise into the dark sky, above the lava band
+        group.position.set(x, -0.55, z);
+        scene.add(group);
+
+        const b = {
+            group, ball, mat, light, glyph, hit, glow,
+            phase: 'rising', t: 0, baseX: x, baseZ: z,
+            surfaceY: -0.55, apexY: apex,
+            popped: false, captured: false,
+        };
+        b.hit.userData.bubble = b;
+        bubbles.push(b);
+        return b;
+    }
+
+    function popBubble(b, silent) {
+        if (b.popped) return;
+        b.popped = true;
+        const wp = new THREE.Vector3();
+        b.group.getWorldPosition(wp);
+        createBurst(wp, 0xff8c2a, 22);
+        if (!silent) playPhoneme();          // the lake releases /s/
+        // a fading /s/ glyph drifts up
+        spawnDriftGlyph(wp, sPhonTex, 0xffcc66);
+        removeBubble(b);
+    }
+
+    function removeBubble(b) {
+        const i = bubbles.indexOf(b);
+        if (i >= 0) bubbles.splice(i, 1);
+        scene.remove(b.group);
+    }
+
+    function clearBubbles() {
+        bubbles.forEach(b => scene.remove(b.group));
+        bubbles = [];
+    }
+
+    // ==================== DRIFTING GLYPHS ====================
+    let driftGlyphs = [];
+    function spawnDriftGlyph(pos, tex, colorHex) {
+        const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+            map: tex, transparent: true, opacity: 0.95, depthTest: false,
+            blending: THREE.AdditiveBlending,
+        }));
+        sp.position.copy(pos);
+        sp.scale.set(0.6, 0.6, 1);
+        scene.add(sp);
+        driftGlyphs.push({ sp, life: 1.0, vy: 0.7 + Math.random()*0.4 });
+    }
+
+    // ==================== PARTICLE BURSTS ====================
+    let bursts = [];
+    function createBurst(pos, colorHex, count) {
+        count = count || 24;
+        const geo = new THREE.BufferGeometry();
+        const positions = new Float32Array(count * 3);
+        const vels = [];
+        for (let i = 0; i < count; i++) {
+            positions[i*3] = pos.x; positions[i*3+1] = pos.y; positions[i*3+2] = pos.z;
+            const th = Math.random() * Math.PI * 2;
+            const ph = Math.acos(2*Math.random() - 1);
+            const sp = 1.4 + Math.random() * 3.2;
+            vels.push(new THREE.Vector3(
+                Math.sin(ph)*Math.cos(th)*sp,
+                Math.abs(Math.sin(ph)*Math.sin(th))*sp*0.8 + 1.4,
+                Math.cos(ph)*sp*0.5
+            ));
+        }
+        geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        const mesh = new THREE.Points(geo, new THREE.PointsMaterial({
+            color: colorHex, size: 0.08, transparent: true, opacity: 1,
+            blending: THREE.AdditiveBlending, depthWrite: false,
+        }));
+        scene.add(mesh);
+        bursts.push({ mesh, vels, life: 1.0 });
+    }
+
+    // ==================== COLLECTED ORB SHELF ====================
+    let flyingOrbs = [];   // orbs animating from capture point to the shelf
+    let shelfOrbs  = [];
+
+    function shelfSlotPos(i) {
+        // a row low and close to camera (reads as a shelf at the bottom of screen)
+        const perRow = 7;
+        const col = i % perRow, row = Math.floor(i / perRow);
+        const x = (col - (perRow-1)/2) * 0.62;
+        return new THREE.Vector3(x, -0.05 - row*0.0, 3.7 - row*0.55);
+    }
+
+    function makeOrbMesh() {
+        const g = new THREE.Group();
+        const shell = new THREE.Mesh(
+            new THREE.SphereGeometry(0.2, 18, 16),
+            new THREE.MeshStandardMaterial({
+                color: SPARK_COL, emissive: SPARK_HOT, emissiveIntensity: 0.6,
+                roughness: 0.15, metalness: 0.3, transparent: true, opacity: 0.55,
+            })
+        );
+        g.add(shell);
+        const core = new THREE.Mesh(
+            new THREE.SphereGeometry(0.1, 12, 12),
+            new THREE.MeshBasicMaterial({ color: 0xffffff })
+        );
+        g.add(core);
+        const sLabel = new THREE.Sprite(new THREE.SpriteMaterial({
+            map: sGlyphTex, transparent: true, depthTest: false,
+        }));
+        sLabel.scale.set(0.34, 0.34, 1);
+        g.add(sLabel);
+        const light = new THREE.PointLight(SPARK_COL, 0.5, 2);
+        g.add(light);
+        scene.add(g);
+        return g;
+    }
+
+    function captureOrb(fromPos) {
+        score++;
+        $scoreNum.textContent = score;
+        const g = makeOrbMesh();
+        g.position.copy(fromPos);
+        const dest = shelfSlotPos(Math.min(shelfOrbs.length, SHELF_MAX - 1));
+        flyingOrbs.push({ g, from: fromPos.clone(), to: dest, t: 0, bob: Math.random()*6.28 });
+        playCaptureChime();
+        createBurst(fromPos, SPARK_COL, 26);
+        triggerFlash(SPARK_COL, 0.18);
+    }
+
+    // ==================== FLASH ====================
+    const flashPlane = (function() {
+        const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthTest: false });
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), mat);
+        mesh.position.set(0, 0, -2);      // pinned in front of the (moving) camera
+        camera.add(mesh);
+        scene.add(camera);
+        return { mesh, mat };
+    })();
+    function triggerFlash(color, intensity) {
+        flashPlane.mat.color.set(color);
+        flashPlane.mat.opacity = intensity;
+    }
+
+    updateLayout();
+
+    // ==================== AUDIO ====================
+    let audioCtx = null;
+    let droneOsc = null, droneGain = null;
+    let sBuffer = null;
+
+    async function loadAudio() {
+        if (!audioCtx) return;
+        try {
+            const resp = await fetch('audio/s.wav');
+            if (resp.ok) sBuffer = await audioCtx.decodeAudioData(await resp.arrayBuffer());
+        } catch (err) { console.warn('Failed to load /s/ audio:', err); }
+    }
+
+    async function initAudio() {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') await audioCtx.resume();
+    }
+
+    function playPhoneme() {
+        if (!audioCtx || !sBuffer) return;
+        const gain = audioCtx.createGain();
+        gain.gain.value = 0.85;
+        gain.connect(audioCtx.destination);
+        const src = audioCtx.createBufferSource();
+        src.buffer = sBuffer;
+        src.connect(gain);
+        src.start();
+    }
+
+    function startDrone() {
+        if (!audioCtx || droneOsc) return;
+        droneOsc = audioCtx.createOscillator();
+        droneGain = audioCtx.createGain();
+        const filter = audioCtx.createBiquadFilter();
+        droneOsc.type = 'sawtooth';
+        droneOsc.frequency.value = 46;
+        filter.type = 'lowpass';
+        filter.frequency.value = 120;
+        droneGain.gain.value = 0;
+        droneOsc.connect(filter); filter.connect(droneGain); droneGain.connect(audioCtx.destination);
+        droneOsc.start();
+        droneGain.gain.linearRampToValueAtTime(0.05, audioCtx.currentTime + 2);
+    }
+
+    function tone(freq, dur, type, vol, delay) {
+        if (!audioCtx) return;
+        const t = audioCtx.currentTime + (delay || 0);
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type || 'sine';
+        osc.frequency.value = freq;
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.linearRampToValueAtTime(vol || 0.08, t + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + (dur || 0.4));
+        osc.start(t); osc.stop(t + (dur || 0.4) + 0.05);
+    }
+    function playCaptureChime() { [523, 659, 784, 1047].forEach((f,i) => tone(f, 0.9, 'sine', 0.09, i*0.06)); }
+    function playTraceDone()    { [392, 523, 659].forEach((f,i) => tone(f, 0.5, 'triangle', 0.08, i*0.05)); }
+    function playSoftFail()     { tone(180, 0.3, 'sine', 0.06); tone(140, 0.35, 'sine', 0.05, 0.05); }
+
+    // ==================== UI REFS ====================
+    const $title    = document.getElementById('title-screen');
+    const $result   = document.getElementById('result-screen');
+    const $resLbl   = document.getElementById('result-label');
+    const $resScore = document.getElementById('result-score');
+    const $resSub   = document.getElementById('result-sub');
+    const $scoreWrap = document.getElementById('score-wrap');
+    const $scoreNum  = document.getElementById('score-num');
+    const $timerWrap = document.getElementById('timer-wrap');
+    const $timerFill = document.getElementById('timer-fill');
+    const $exitBtn   = document.getElementById('exit-btn');
+    const $caption   = document.getElementById('caption');
+    const $huntHint  = document.getElementById('hunt-hint');
+    const $dim       = document.getElementById('overlay-dim');
+    const $slate     = document.getElementById('slate');
+    const $slateHint = document.getElementById('slate-hint');
+    const $sayPanel  = document.getElementById('say-panel');
+    const $sayRune   = document.getElementById('say-rune');
+    const $sayHint   = document.getElementById('say-hint');
+    const slateCanvas = document.getElementById('slate-canvas');
+
+    function showCaption(html) { $caption.innerHTML = html; $caption.classList.add('visible'); }
+    function hideCaption()     { $caption.classList.remove('visible'); }
+
+    // ==================== INTRO (instruction sequence) ====================
+    const INTRO = [
+        `The lava lake hisses. Each spark that bursts breathes a sound&hellip; <span class="phon">/s/</span><span class="cont">Tap to continue</span>`,
+        `<span class="mentor">Mentor:</span> &ldquo;That hiss is wild magic, young one. We came to <em>capture</em> the <span class="phon">/s/</span> and bind its power.&rdquo;<span class="cont">Tap to continue</span>`,
+        `<span class="mentor">Mentor:</span> &ldquo;To catch a sound, <b>write its symbol</b> &mdash; the letter <span class="phon">S</span> &mdash; and <b>speak its name</b>.&rdquo;<span class="cont">Tap to continue</span>`,
+        `<span class="mentor">Mentor:</span> &ldquo;Watch.&rdquo;  The staff carves an <span class="phon">S</span> in the air&hellip;<span class="cont">Tap to continue</span>`,
+        `<span class="mentor">Mentor:</span> &ldquo;Now &mdash; capture as many sparks as you can!&rdquo;<span class="cont">Tap to begin the hunt</span>`,
+    ];
+
+    function startIntro() {
+        state = 'intro';
+        introStep = 0;
+        $scoreWrap.style.display = 'flex';
+        $exitBtn.classList.add('visible');
+        showCaption(INTRO[0]);
+        spawnBubble(true);            // a demo spark for the opening line
+    }
+
+    function advanceIntro() {
+        introStep++;
+        if (introStep >= INTRO.length) { startHunt(); return; }
+        showCaption(INTRO[introStep]);
+        if (introStep === 0 || introStep === 1) spawnBubble(true);
+        if (introStep === 3) demoConjure();
+    }
+
+    // Mentor demonstrates: an S is drawn at the staff tip, then a demo orb forms & flies off.
+    function demoConjure() {
+        const tip = new THREE.Vector3();
+        mentor.wandTip.getWorldPosition(tip);
+        const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+            map: sGlyphTex, transparent: true, opacity: 0, depthTest: false, blending: THREE.AdditiveBlending,
+        }));
+        sp.position.copy(tip); sp.position.y += 0.4;
+        sp.scale.set(0.1, 0.1, 1);
+        scene.add(sp);
+        driftGlyphs.push({ sp, life: 1.6, vy: 0.25, grow: true });
+        playTraceDone();
+        setTimeout(() => {
+            const orb = makeOrbMesh();
+            const from = tip.clone(); from.y += 0.4;
+            orb.position.copy(from);
+            // demo orb just floats up and fades (doesn't count toward score)
+            flyingOrbs.push({ g: orb, from, to: from.clone().add(new THREE.Vector3(0,1.4,1)), t: 0, demo: true, bob: 0 });
+            playCaptureChime();
+            createBurst(from, SPARK_COL, 20);
+        }, 600);
+    }
+
+    // ==================== HUNT ====================
+    function startHunt() {
+        state = 'hunt';
+        huntTimer = HUNT_TIME;
+        spawnTimer = 0;
+        hideCaption();
+        clearBubbles();
+        $timerWrap.style.display = '';
+        $timerFill.style.width = '100%';
+        $huntHint.classList.add('visible');
+        setTimeout(() => $huntHint.classList.remove('visible'), 3500);
+    }
+
+    function tryCaptureAt(clientX, clientY) {
+        // forgiving tap: raycast, else grab the most-bloomed bubble
+        pointer.x = (clientX / innerWidth) * 2 - 1;
+        pointer.y = -(clientY / innerHeight) * 2 + 1;
+        raycaster.setFromCamera(pointer, camera);
+        const hits = raycaster.intersectObjects(bubbles.map(b => b.hit));
+        let target = null;
+        if (hits.length) target = hits[0].object.userData.bubble;
+        if (!target) {
+            // fallback: nearest risen/blooming spark to the tap
+            let best = Infinity;
+            bubbles.forEach(b => {
+                if (b.phase === 'rising' && b.t < RISE_TIME*0.4) return;
+                const wp = new THREE.Vector3(); b.group.getWorldPosition(wp); wp.project(camera);
+                const dx = wp.x - pointer.x, dy = wp.y - pointer.y;
+                const d = dx*dx + dy*dy;
+                if (d < best && d < 0.12) { best = d; target = b; }
+            });
+        }
+        if (target) beginCapture(target);
+    }
+
+    function beginCapture(b) {
+        activeBubble = b;
+        b.captured = true;
+        traceAttempts = 0;
+        playPhoneme();                       // hear /s/ as you grab the spark
+        // lift the spark toward the player as a held flame
+        const wp = new THREE.Vector3(); b.group.getWorldPosition(wp);
+        b.heldFrom = wp.clone();
+        openSlate();
+    }
+
+    // ==================== RUNE SLATE (trace) ====================
+    let slateSize = 320;       // device-pixel buffer size
+    let drawing = false;
+    let stroke = [];
+    let nextIdx = 0;
+    let showGuide = true;
+
+    function sizeSlate() {
+        const rect = slateCanvas.getBoundingClientRect();
+        const dpr = Math.min(devicePixelRatio, 2);
+        slateSize = Math.round(rect.width * dpr);
+        slateCanvas.width = slateSize;
+        slateCanvas.height = slateSize;
+    }
+
+    function openSlate() {
+        state = 'tracing';
+        stroke = [];
+        nextIdx = 0;
+        drawing = false;
+        // Supported on first capture or after a failure; independent otherwise (per PDF)
+        showGuide = (captureCount === 0);
+        $slateHint.textContent = showGuide ? 'Trace the glowing path' : 'Draw the S to bind the spark';
+        $dim.classList.add('visible');
+        $slate.classList.add('visible');
+        requestAnimationFrame(() => { sizeSlate(); drawSlate(); });
+    }
+
+    function closeSlate() {
+        $slate.classList.remove('visible');
+    }
+
+    function catmull(pts, perSeg) {
+        // smooth curve through points (normalized) -> sampled polyline
+        const out = [];
+        const P = pts.map(p => ({x: p[0], y: p[1]}));
+        for (let i = 0; i < P.length - 1; i++) {
+            const p0 = P[i-1] || P[i], p1 = P[i], p2 = P[i+1], p3 = P[i+2] || P[i+1];
+            for (let s = 0; s < perSeg; s++) {
+                const t = s / perSeg, t2 = t*t, t3 = t2*t;
+                out.push({
+                    x: 0.5*((2*p1.x)+(-p0.x+p2.x)*t+(2*p0.x-5*p1.x+4*p2.x-p3.x)*t2+(-p0.x+3*p1.x-3*p2.x+p3.x)*t3),
+                    y: 0.5*((2*p1.y)+(-p0.y+p2.y)*t+(2*p0.y-5*p1.y+4*p2.y-p3.y)*t2+(-p0.y+3*p1.y-3*p2.y+p3.y)*t3),
+                });
+            }
+        }
+        out.push({x: P[P.length-1].x, y: P[P.length-1].y});
+        return out;
+    }
+    const S_CURVE = catmull(S_PATH, 16);
+
+    function drawSlate() {
+        const ctx = slateCanvas.getContext('2d');
+        const S = slateSize;
+        ctx.clearRect(0, 0, S, S);
+
+        // guide outline (dotted S) — only when supported
+        if (showGuide) {
+            ctx.lineWidth = S * 0.055;
+            ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+            ctx.strokeStyle = 'rgba(192,96,255,0.28)';
+            ctx.setLineDash([S*0.012, S*0.03]);
+            ctx.beginPath();
+            S_CURVE.forEach((p, i) => i ? ctx.lineTo(p.x*S, p.y*S) : ctx.moveTo(p.x*S, p.y*S));
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // checkpoints — start node highlighted, passed nodes lit
+        S_PATH.forEach((p, i) => {
+            const passed = i < nextIdx;
+            const isNext = i === nextIdx;
+            ctx.beginPath();
+            ctx.arc(p[0]*S, p[1]*S, S*(isNext?0.035:0.022), 0, 7);
+            ctx.fillStyle = passed ? 'rgba(255,210,140,0.95)'
+                          : isNext ? 'rgba(214,160,255,0.85)'
+                          : showGuide ? 'rgba(192,96,255,0.35)' : 'rgba(192,96,255,0.0)';
+            ctx.fill();
+            if (i === 0 && nextIdx === 0) {       // "start here" ring
+                ctx.beginPath();
+                ctx.arc(p[0]*S, p[1]*S, S*0.06, 0, 7);
+                ctx.strokeStyle = 'rgba(214,160,255,0.7)';
+                ctx.lineWidth = S*0.008;
+                ctx.stroke();
+            }
+        });
+
+        // player's stroke
+        if (stroke.length > 1) {
+            const grad = ctx.createLinearGradient(0,0,S,S);
+            grad.addColorStop(0, '#ffd9a8'); grad.addColorStop(1, '#d6a0ff');
+            ctx.strokeStyle = grad;
+            ctx.lineWidth = S * 0.05;
+            ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+            ctx.shadowColor = 'rgba(214,160,255,0.9)'; ctx.shadowBlur = S*0.05;
+            ctx.beginPath();
+            stroke.forEach((p, i) => i ? ctx.lineTo(p.x*S, p.y*S) : ctx.moveTo(p.x*S, p.y*S));
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+        }
+    }
+
+    function slatePoint(e) {
+        const rect = slateCanvas.getBoundingClientRect();
+        return { x: (e.clientX - rect.left) / rect.width, y: (e.clientY - rect.top) / rect.height };
+    }
+
+    function onSlateDown(e) {
+        if (state !== 'tracing') return;
+        e.preventDefault(); e.stopPropagation();
+        drawing = true;
+        try { slateCanvas.setPointerCapture(e.pointerId); } catch (err) {}
+        stroke = [slatePoint(e)];
+        checkpointCheck();
+        drawSlate();
+    }
+    function onSlateMove(e) {
+        if (!drawing || state !== 'tracing') return;
+        e.preventDefault(); e.stopPropagation();
+        stroke.push(slatePoint(e));
+        checkpointCheck();
+        drawSlate();
+        if (nextIdx >= S_PATH.length) traceSuccess();
+    }
+    function onSlateUp(e) {
+        if (state !== 'tracing') return;
+        e.preventDefault(); e.stopPropagation();
+        drawing = false;
+        if (nextIdx >= S_PATH.length) { traceSuccess(); return; }
+        traceFail();
+    }
+
+    function checkpointCheck() {
+        const p = stroke[stroke.length - 1];
+        // advance through as many checkpoints as the latest point satisfies (in order)
+        while (nextIdx < S_PATH.length) {
+            const cp = S_PATH[nextIdx];
+            const dx = p.x - cp[0], dy = p.y - cp[1];
+            if (Math.sqrt(dx*dx + dy*dy) < TRACE_TOL) nextIdx++;
+            else break;
+        }
+    }
+
+    function traceSuccess() {
+        if (state !== 'tracing') return;
+        captureCount++;
+        playTraceDone();
+        closeSlate();
+        openSay();
+    }
+
+    function traceFail() {
+        traceAttempts++;
+        playSoftFail();
+        // The world responds, not a red X: the mentor reveals the path to trace.
+        showGuide = true;
+        $slateHint.textContent = 'Follow the glowing path';
+        stroke = [];
+        nextIdx = 0;
+        // gentle shake of the slate
+        $slate.animate(
+            [{transform:'translate(-50%,-50%) scale(1) translateX(-8px)'},
+             {transform:'translate(-50%,-50%) scale(1) translateX(8px)'},
+             {transform:'translate(-50%,-50%) scale(1) translateX(0)'}],
+            {duration: 260, easing: 'ease-out'}
+        );
+        drawSlate();
+    }
+
+    slateCanvas.addEventListener('pointerdown', onSlateDown, { passive: false });
+    slateCanvas.addEventListener('pointermove', onSlateMove, { passive: false });
+    slateCanvas.addEventListener('pointerup', onSlateUp, { passive: false });
+    slateCanvas.addEventListener('pointercancel', onSlateUp, { passive: false });
+
+    // ==================== SAY ITS NAME ====================
+    let recognition = null;
+    let sayResolved = false;
+
+    function openSay() {
+        state = 'saying';
+        sayResolved = false;
+        $sayHint.textContent = 'Tap the rune & say “ess”';
+        $sayRune.classList.remove('listening');
+        $sayPanel.classList.add('visible');
+        startListening();
+    }
+
+    function startListening() {
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SR) return;                  // tap is the reliable fallback
+        try {
+            recognition = new SR();
+            recognition.lang = 'en-US';
+            recognition.interimResults = true;
+            recognition.maxAlternatives = 3;
+            $sayRune.classList.add('listening');
+            $sayHint.textContent = 'Listening… say “ess”';
+            recognition.onresult = (ev) => {
+                const txt = Array.from(ev.results).map(r => r[0].transcript).join(' ').toLowerCase();
+                if (/\b(s|es|ess|yes|esse)\b/.test(txt) || txt.replace(/[^a-z]/g,'').includes('s')) {
+                    saySuccess();
+                }
+            };
+            recognition.onerror = () => { $sayRune.classList.remove('listening'); };
+            recognition.onend   = () => { $sayRune.classList.remove('listening'); };
+            recognition.start();
+        } catch (e) { /* fall back to tap */ }
+    }
+
+    function stopListening() {
+        if (recognition) { try { recognition.stop(); } catch(e){} recognition = null; }
+        $sayRune.classList.remove('listening');
+    }
+
+    function saySuccess() {
+        if (sayResolved || state !== 'saying') return;
+        sayResolved = true;
+        stopListening();
+        $sayPanel.classList.remove('visible');
+        $dim.classList.remove('visible');
+
+        // summon the orb from where the spark was held, fly it to the shelf
+        const from = (activeBubble && activeBubble.heldFrom)
+            ? activeBubble.heldFrom.clone()
+            : new THREE.Vector3(0.4, 0.6, 1.6);
+        if (activeBubble) { removeBubble(activeBubble); activeBubble = null; }
+        captureOrb(from);
+
+        state = 'hunt';                 // back to the lake
+        if (huntTimer <= 0) endHunt();
+    }
+
+    // tap the rune to speak (primary, reliable path for the prototype)
+    $sayRune.addEventListener('pointerdown', (e) => { e.stopPropagation(); saySuccess(); });
+
+    // ==================== RESULTS ====================
+    function endHunt() {
+        state = 'results';
+        stopListening();
+        clearBubbles();
+        $timerWrap.style.display = 'none';
+        $huntHint.classList.remove('visible');
+        $exitBtn.classList.remove('visible');
+        $dim.classList.remove('visible');
+        $slate.classList.remove('visible');
+        $sayPanel.classList.remove('visible');
+
+        if (score >= 8)      { $resLbl.textContent = 'Spark-Binder'; $resLbl.style.color = '#ffd66e'; }
+        else if (score >= 4) { $resLbl.textContent = 'The Lake Answers'; $resLbl.style.color = '#d6a0ff'; }
+        else                 { $resLbl.textContent = 'Embers Gathered'; $resLbl.style.color = '#ffb066'; }
+        $resScore.textContent = score;
+        $resSub.textContent = score === 1 ? 'S-/s/ orb bound' : 'S-/s/ orbs bound';
+        showScreenEl($result);
+    }
+
+    function showScreenEl(el) { el.classList.add('visible'); }
+    function hideScreenEl(el) { el.classList.remove('visible'); }
+
+    function exitToTitle() {
+        stopListening();
+        clearBubbles();
+        state = 'title';
+        $scoreWrap.style.display = 'none';
+        $timerWrap.style.display = 'none';
+        $exitBtn.classList.remove('visible');
+        $huntHint.classList.remove('visible');
+        $dim.classList.remove('visible');
+        $slate.classList.remove('visible');
+        $sayPanel.classList.remove('visible');
+        hideCaption();
+        hideScreenEl($result);
+        showScreenEl($title);
+    }
+
+    function beginSession() {
+        score = 0;
+        captureCount = 0;
+        $scoreNum.textContent = '0';
+        shelfOrbs.forEach(o => scene.remove(o)); shelfOrbs = [];
+        flyingOrbs.forEach(o => scene.remove(o.g)); flyingOrbs = [];
+        hideScreenEl($title);
+        hideScreenEl($result);
+        startIntro();
+    }
+
+    // ==================== INPUT ====================
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+
+    document.addEventListener('pointerdown', async function(e) {
+        if (e.target === $exitBtn) return;
+        if (e.target === slateCanvas) return;          // handled by slate listeners
+        if (e.target === $sayRune) return;             // handled by rune listener
+        await initAudio();
+        startDrone();
+
+        switch (state) {
+            case 'title':
+            case 'results':
+                beginSession();
+                return;
+            case 'intro':
+                advanceIntro();
+                return;
+            case 'hunt':
+                tryCaptureAt(e.clientX, e.clientY);
+                return;
+        }
+    }, { passive: false });
+
+    $exitBtn.addEventListener('click', (e) => { e.stopPropagation(); exitToTitle(); });
+    window.addEventListener('resize', () => { updateLayout(); if (state === 'tracing') { sizeSlate(); drawSlate(); } });
+
+    // ==================== MAIN LOOP ====================
+    const clock = new THREE.Clock();
+
+    function update() {
+        requestAnimationFrame(update);
+        const dt = Math.min(clock.getDelta(), 0.1);
+        const T = clock.elapsedTime;
+        stateTimer += dt;
+
+        // --- Lava surface wave + flicker ---
+        const pos = lava.geo.attributes.position;
+        const base = lava.base;
+        for (let i = 0; i < pos.count; i++) {
+            const bx = base[i*3], by = base[i*3+1];
+            pos.array[i*3+2] = Math.sin(bx*0.6 + T*1.1) * 0.12 + Math.cos(by*0.5 - T*0.8) * 0.12;
+        }
+        pos.needsUpdate = true;
+        lava.mat.emissiveIntensity = 0.85 + Math.sin(T*2.3)*0.12 + Math.sin(T*5.7)*0.05;
+        lavaLight.intensity = 2.0 + Math.sin(T*2.0)*0.4;
+        shoreGlow.material.opacity = 0.45 + Math.sin(T*3.1)*0.1;
+
+        // --- Embers ---
+        const ep = embers.geo.attributes.position.array;
+        for (let i = 0; i < embers.meta.length; i++) {
+            const m = embers.meta[i];
+            ep[i*3+1] += m.ySpeed * dt;
+            ep[i*3]   += Math.sin(T*m.wobS + m.wob) * 0.4 * dt;
+            if (ep[i*3+1] > 5.5) { ep[i*3+1] = -0.5; ep[i*3] = (Math.random()-0.5)*24; }
+        }
+        embers.geo.attributes.position.needsUpdate = true;
+
+        // --- Mentor staff glow ---
+        if (mentor.wandLight) mentor.wandLight.intensity = 0.6 + Math.sin(T*3)*0.25;
+
+        // --- Bubbles lifecycle ---
+        bubbles.forEach(b => {
+            if (b.captured) {
+                // held: shrink slightly & brighten while the slate is open
+                b.group.scale.setScalar(Math.max(0.0001, b.group.scale.x * (1 - dt*1.5)));
+                return;
+            }
+            b.t += dt;
+            const sway = Math.sin(T*1.5 + b.baseX) * 0.06;
+            if (b.phase === 'rising') {
+                const k = Math.min(b.t / RISE_TIME, 1);
+                const ease = k*k*(3-2*k);
+                b.group.position.y = b.surfaceY + (b.apexY - b.surfaceY) * ease;
+                b.group.position.x = b.baseX + sway * ease;
+                b.ball.scale.setScalar(0.6 + 0.4*ease + Math.sin(T*8)*0.03);
+                b.light.intensity = 0.5 + ease*0.6;
+                if (k >= 1) { b.phase = 'bloom'; b.t = 0; b.glyph.material.opacity = 0; }
+            } else if (b.phase === 'bloom') {
+                b.group.position.x = b.baseX + sway;
+                const pulse = 1 + Math.sin(T*9)*0.06;
+                b.ball.scale.setScalar(pulse);
+                b.mat.emissiveIntensity = 1.4 + Math.sin(T*9)*0.4;
+                b.light.intensity = 1.3 + Math.sin(T*9)*0.4;
+                if (b.glow) b.glow.material.opacity = 0.8 + Math.sin(T*9)*0.15;
+                b.glyph.material.opacity = Math.min(0.9, b.glyph.material.opacity + dt*2);
+                b.glyph.position.y = 0.5 + Math.sin(T*3)*0.05;
+                if (b.t >= BLOOM_TIME) popBubble(b);   // missed — it bursts (releases /s/) and is gone
+            }
+        });
+
+        // spawn during the hunt
+        if (state === 'hunt') {
+            spawnTimer += dt;
+            if (spawnTimer >= SPAWN_EVERY) { spawnTimer = 0; spawnBubble(false); }
+        }
+
+        // --- Drift glyphs ---
+        driftGlyphs = driftGlyphs.filter(d => {
+            d.life -= dt * (d.grow ? 0.6 : 1.1);
+            d.sp.position.y += d.vy * dt;
+            d.sp.material.opacity = Math.max(0, d.life);
+            if (d.grow) {
+                const s = 0.1 + (1 - d.life) * 0.7;
+                d.sp.scale.set(s, s, 1);
+            }
+            if (d.life <= 0) { scene.remove(d.sp); return false; }
+            return true;
+        });
+
+        // --- Flying orbs to shelf ---
+        flyingOrbs = flyingOrbs.filter(o => {
+            o.t += dt * 1.4;
+            const k = Math.min(o.t, 1);
+            const ease = k*k*(3-2*k);
+            o.g.position.lerpVectors(o.from, o.to, ease);
+            o.g.position.y += Math.sin(ease*Math.PI) * 0.8;     // arc upward
+            o.g.rotation.y += dt*3;
+            if (k >= 1) {
+                if (o.demo) { scene.remove(o.g); }
+                else { shelfOrbs.push(o.g); }
+                return false;
+            }
+            return true;
+        });
+
+        // --- Shelf orbs bob ---
+        shelfOrbs.forEach((o, i) => {
+            const slot = shelfSlotPos(Math.min(i, SHELF_MAX-1));
+            o.position.set(slot.x, slot.y + Math.sin(T*1.6 + i)*0.04, slot.z);
+            o.rotation.y += dt*0.6;
+        });
+
+        // --- Bursts ---
+        bursts = bursts.filter(b => {
+            b.life -= dt * 1.8;
+            b.mesh.material.opacity = Math.max(0, b.life);
+            const p = b.mesh.geometry.attributes.position.array;
+            for (let i = 0; i < b.vels.length; i++) {
+                p[i*3]   += b.vels[i].x * dt;
+                p[i*3+1] += b.vels[i].y * dt;
+                p[i*3+2] += b.vels[i].z * dt;
+                b.vels[i].multiplyScalar(0.95);
+                b.vels[i].y -= dt * 2.2;
+            }
+            b.mesh.geometry.attributes.position.needsUpdate = true;
+            if (b.life <= 0) { scene.remove(b.mesh); return false; }
+            return true;
+        });
+
+        // --- Flash decay ---
+        if (flashPlane.mat.opacity > 0) {
+            flashPlane.mat.opacity *= Math.pow(0.004, dt);
+            if (flashPlane.mat.opacity < 0.003) flashPlane.mat.opacity = 0;
+        }
+
+        // --- Screen shake ---
+        if (shakeAmount > 0.003) {
+            camera.position.x = cameraBase.x + (Math.random()-0.5)*shakeAmount;
+            camera.position.y = cameraBase.y + (Math.random()-0.5)*shakeAmount;
+            shakeAmount *= Math.pow(0.01, dt);
+        } else { camera.position.copy(cameraBase); }
+
+        // --- Hunt timer (pauses while a slate/say panel is open, so writing isn't rushed) ---
+        if (state === 'hunt') {
+            huntTimer -= dt;
+            $timerFill.style.width = Math.max(0, huntTimer / HUNT_TIME * 100) + '%';
+            if (huntTimer <= 0) endHunt();
+        }
+
+        renderer.render(scene, camera);
+    }
+
+    // ==================== BOOT ====================
+    function boot() {
+        state = 'title';
+        try {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            loadAudio();        // background; decodeAudioData works while suspended
+        } catch (err) { console.warn('Audio init failed:', err); }
+    }
+
+    update();
+    boot();
+    </script>
+</body>
+</html>
