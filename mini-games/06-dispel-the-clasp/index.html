@@ -547,7 +547,11 @@
     let audioCtx = null;
     async function initAudio() {
         if (!audioCtx) { try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; } }
-        if (audioCtx.state === 'suspended') { try { await audioCtx.resume(); } catch (e) {} }
+        if (audioCtx.state === 'suspended') {
+            // resume() can hang on some phones — never let it block the game;
+            // playVoice() retries the resume before every line anyway
+            try { await Promise.race([audioCtx.resume(), sleep(500)]); } catch (e) {}
+        }
     }
     function tone(freq, dur, type, vol, delay) {
         if (!audioCtx) return;
@@ -2069,16 +2073,7 @@
     // ==================== INPUT / BOOT ====================
     async function beginSession() {
         session++;
-        await initAudio();
-        // warm the narration cache so the mentor speaks without a stutter:
-        // the opening lines now, everything else once the demo is underway
-        ['demo-intro','demo-sealed','demo-word','letter-C','letter-L','letter-A',
-         'letter-S','letter-P','trace-first-2-C','say-first'].forEach(loadVoice);
-        setTimeout(() => VOICE_IDS.forEach(loadVoice), 2500);
-        // Warm up speech synthesis inside the user gesture (required on iOS)
-        if ('speechSynthesis' in window) {
-            try { const u = new SpeechSynthesisUtterance(''); speechSynthesis.speak(u); } catch (e) {}
-        }
+        // respond on screen IMMEDIATELY — audio init must never gate entry
         $title.classList.remove('visible');
         $end.classList.remove('visible');
         $replay.classList.add('visible');
@@ -2086,14 +2081,24 @@
         wordsFreed = [];
         scene.doorOpen = 0;
         updatePips();
+        // Warm up speech synthesis inside the user gesture (required on iOS)
+        if ('speechSynthesis' in window) {
+            try { const u = new SpeechSynthesisUtterance(''); speechSynthesis.speak(u); } catch (e) {}
+        }
+        await initAudio();   // bounded — resolves within ~500ms even if resume hangs
+        // warm the narration cache so the mentor speaks without a stutter:
+        // the opening lines now, everything else once the demo is underway
+        ['demo-intro','demo-sealed','demo-word','letter-C','letter-L','letter-A',
+         'letter-S','letter-P','trace-first-2-C','say-first'].forEach(loadVoice);
+        setTimeout(() => VOICE_IDS.forEach(loadVoice), 2500);
         runDemo();
     }
 
     document.addEventListener('pointerdown', e => {
         // leave 'title'/'end' SYNCHRONOUSLY — beginSession awaits audio init,
         // and a second tap in that gap would launch a second, parallel demo
-        if (state === 'title') { state = 'starting'; beginSession(); return; }
-        if (state === 'end') { resetAll(); state = 'starting'; beginSession(); return; }
+        if (state === 'title') { state = 'starting'; beginSession().catch(() => { state = 'title'; }); return; }
+        if (state === 'end') { resetAll(); state = 'starting'; beginSession().catch(() => { state = 'title'; }); return; }
     });
 
     updateLayout();
