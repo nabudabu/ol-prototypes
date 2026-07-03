@@ -676,17 +676,18 @@
 
     function ensureNarrNodes() {
         if (narrNodes || !audioCtx) return;
-        // procedural impulse response: a short, soft stone-hall tail
-        const rate = audioCtx.sampleRate, len = Math.floor(rate * 1.6);
+        // procedural impulse response: a short, soft stone-hall tail — kept
+        // brief so the room's echo can't ring into the re-opened microphone
+        const rate = audioCtx.sampleRate, len = Math.floor(rate * 0.9);
         const imp = audioCtx.createBuffer(2, len, rate);
         for (let c = 0; c < 2; c++) {
             const d = imp.getChannelData(c);
-            for (let i = 0; i < len; i++) d[i] = (Math.random()*2 - 1) * Math.pow(1 - i/len, 2.6);
+            for (let i = 0; i < len; i++) d[i] = (Math.random()*2 - 1) * Math.pow(1 - i/len, 3.4);
         }
         const conv = audioCtx.createConvolver();
         conv.buffer = imp;
         const dry = audioCtx.createGain(); dry.gain.value = 1.0;
-        const wet = audioCtx.createGain(); wet.gain.value = 0.16;
+        const wet = audioCtx.createGain(); wet.gain.value = 0.14;
         dry.connect(audioCtx.destination);
         conv.connect(wet); wet.connect(audioCtx.destination);
         narrNodes = { dry, conv };
@@ -732,7 +733,32 @@
     }
 
     // The one narration entry point: recorded line if we have it, TTS if not.
-    async function narrate(id, text, captionHtml, opts) {
+    let narrPlayingId = null;          // id currently sounding (dedupe)
+    let narrPlayingPromise = null;
+    let narrEndAt = 0;                 // when the mentor last stopped (echo guard)
+    const narrLastAt = new Map();      // id -> last start, for corrective cooldowns
+
+    function narrate(id, text, captionHtml, opts) {
+        opts = opts || {};
+        // Corrective lines (glow/miss/retry) stay quiet when repeated quickly —
+        // the chime and visuals already answered; re-lecturing sounds broken.
+        if (id && opts.cooldown) {
+            const last = narrLastAt.get(id) || 0;
+            if (performance.now() - last < opts.cooldown) {
+                if (captionHtml) showCaption(captionHtml);
+                return Promise.resolve();
+            }
+        }
+        // Same line already sounding: let it finish rather than stutter-restart.
+        if (id && id === narrPlayingId && narrPlayingPromise) {
+            if (captionHtml) showCaption(captionHtml);
+            return narrPlayingPromise;
+        }
+        narrPlayingPromise = doNarrate(id, text, captionHtml, opts);
+        return narrPlayingPromise;
+    }
+
+    async function doNarrate(id, text, captionHtml, opts) {
         currentNarr = { id, text, opts };
         if (captionHtml !== null) showCaption(captionHtml || text);
         // Release the mic while the mentor talks — an open recognition session
@@ -741,6 +767,8 @@
         if (hadMic) stopListening();
         stopNarration();
         const tk = narrToken;
+        if (id) narrLastAt.set(id, performance.now());
+        narrPlayingId = id || null;
         let spoken = false;
         if (audioCtx && id && VOICE_IDS.has(id)) {
             const buf = await loadVoice(id);
@@ -751,9 +779,16 @@
             if (tk !== narrToken) return;
             await speak(text, null, opts);         // caption already shown
         }
-        // hand the mic back if this step is still waiting on the learner's voice
-        if (tk === narrToken && hadMic && lastListen && (state === 'say' || state === 'read')) {
-            startListening(lastListen.matcher, lastListen.onMatch, lastListen.onMiss);
+        if (tk !== narrToken) return;
+        narrPlayingId = null;
+        narrEndAt = performance.now();
+        // Hand the mic back only after the room's echo of his voice fades —
+        // a mic opened onto the reverb tail transcribes the mentor himself.
+        if (hadMic && lastListen && (state === 'say' || state === 'read')) {
+            await sleep(450);
+            if (tk === narrToken && (state === 'say' || state === 'read')) {
+                startListening(lastListen.matcher, lastListen.onMatch, lastListen.onMiss);
+            }
         }
     }
 
@@ -774,7 +809,10 @@
         listenToken++;
         if (recognition) {
             recognition.onend = null;
-            try { recognition.stop(); } catch (e) {}
+            recognition.onresult = null;
+            // abort() releases the mic immediately; stop() lingers to finalize,
+            // holding the audio session while narration is trying to start
+            try { recognition.abort(); } catch (e) { try { recognition.stop(); } catch (e2) {} }
             recognition = null;
         }
         $micRing.classList.remove('listening');
@@ -789,12 +827,14 @@
         try {
             recognition = new SR();
             recognition.lang = 'en-US';
+            recognition.continuous = true;     // one long session — Android beeps on every session edge
             recognition.interimResults = true;
             recognition.maxAlternatives = 6;
             $micRing.classList.add('listening');
             recognition.onresult = ev => {
                 if (token !== listenToken) return;
                 if (ttsSpeaking) return;   // don't let the narrator's own voice cast the spell
+                if (performance.now() - narrEndAt < 800) return;   // ...nor his lingering echo
                 const last = ev.results[ev.results.length - 1];
                 const heard = Array.from(last).map(a => a.transcript).join(' ');
                 if (matcher(heard)) { onMatch(); return; }
@@ -1746,6 +1786,9 @@
             strokesDrawn++;
             if (strokesDrawn > 6) traceFail();   // wandering — gently re-offer
             drawSlate();
+        } else if (stroke.length < 4) {
+            stroke = [];                          // a stray tap — not an attempt, stay quiet
+            drawSlate();
         } else {
             traceFail();
         }
@@ -1767,7 +1810,8 @@
         drawSlate();
         await narrate('glow-' + currentLetter(),
                       `Here — the shape of ${currentLetter()} glows for you. Trace over it.`,
-                      `The shape of ${currentLetter()} glows for you — trace over it.`);
+                      `The shape of ${currentLetter()} glows for you — trace over it.`,
+                      { cooldown: 6000 });
         if (my !== session) return;
     }
 
@@ -1805,9 +1849,10 @@
 
         if (support() === 2 && letterIx === 0) {
             await narrate('say-first', `Well traced! Now say its name out loud.`, 'Now say its name out loud.');
-        } else if (support() === 2) {
+        } else if (support() === 2 && letterIx === 1) {
             await narrate('say-again', 'Say its name.', 'Say its name.');
         }
+        // later letters: the panel and the ritual itself are the prompt
         if (my !== session || state !== 'say') return;
 
         startListening(
@@ -1822,7 +1867,7 @@
         playSoftFail();
         $voiceGlyph.classList.add('wrong');
         setTimeout(() => $voiceGlyph.classList.remove('wrong'), 600);
-        narrate(id, hint, hint);
+        narrate(id, hint, hint, { cooldown: 4000 });
     }
 
     function letterSaid() {
@@ -1898,13 +1943,16 @@
             scene.underlineT = 1;
             $underTrack.classList.remove('visible');
             openReadWord();
-        } else {
-            // not enough of the word — the line fades, mentor re-offers
+        } else if (underMaxX - underMinX > 24) {
+            // a real attempt that fell short — the line fades, mentor re-offers
             scene.underlineT = 0;
             $underLine.style.width = '0px';
             playSoftFail();
             narrate('under-retry', 'Sweep all the way under the word, left to right.',
-                    'Sweep all the way under the word, left to right.');
+                    'Sweep all the way under the word, left to right.', { cooldown: 4000 });
+        } else {
+            scene.underlineT = 0;                 // a stray tap — reset silently
+            $underLine.style.width = '0px';
         }
     }, { passive: false });
     $underTrack.addEventListener('pointercancel', () => { underDown = false; }, { passive: false });
@@ -2022,9 +2070,11 @@
     async function beginSession() {
         session++;
         await initAudio();
-        // warm the narration cache so the mentor speaks without a stutter
+        // warm the narration cache so the mentor speaks without a stutter:
+        // the opening lines now, everything else once the demo is underway
         ['demo-intro','demo-sealed','demo-word','letter-C','letter-L','letter-A',
          'letter-S','letter-P','trace-first-2-C','say-first'].forEach(loadVoice);
+        setTimeout(() => VOICE_IDS.forEach(loadVoice), 2500);
         // Warm up speech synthesis inside the user gesture (required on iOS)
         if ('speechSynthesis' in window) {
             try { const u = new SpeechSynthesisUtterance(''); speechSynthesis.speak(u); } catch (e) {}
