@@ -32,10 +32,13 @@
           Round 2 — LAMP   Reduced:     outlines faint; narration shortens
           Round 3 — DESK   Independent: no outlines unless a trace fails
 
-        Narration: browser SpeechSynthesis; every prompt is spoken, with a
-        persistent 🔊 replay button. Speech input: Web Speech API with fuzzy,
-        forgiving matching; a tap-to-confirm "I said it" button is always
-        available so a missing/denied mic never blocks the loop.
+        Narration: pre-recorded neural voice lines (edge-tts, en-GB-Ryan) in
+        audio/*.mp3, played through a soft WebAudio reverb — regenerate with
+        the manifest in the narrate() section if lines change. Browser
+        SpeechSynthesis is the fallback for any missing line. A persistent 🔊
+        button replays the current line. Speech input: Web Speech API with
+        fuzzy, forgiving matching; a tap-to-confirm "I said it" button is
+        always available so a missing/denied mic never blocks the loop.
 
         Rendering: Three.js (CDN, like web fonts — per project convention,
         prototypes #01–#05). Real 3D scene: arched door with swinging leaves,
@@ -581,8 +584,12 @@
     function pickVoice() {
         const vs = speechSynthesis.getVoices();
         if (!vs.length) return;
+        // fallback only — rank the least robotic voices first, wizardly ones ahead
         pickedVoice =
-            vs.find(v => /en/i.test(v.lang) && /samantha|karen|serena|moira|female|google uk english female/i.test(v.name)) ||
+            vs.find(v => /en/i.test(v.lang) && /natural/i.test(v.name) && /ryan|guy|thomas|george/i.test(v.name)) ||
+            vs.find(v => /google uk english male/i.test(v.name)) ||
+            vs.find(v => /en/i.test(v.lang) && /daniel/i.test(v.name)) ||
+            vs.find(v => /google uk english/i.test(v.name)) ||
             vs.find(v => /google us english/i.test(v.name)) ||
             vs.find(v => /^en/i.test(v.lang)) || vs[0];
     }
@@ -617,8 +624,8 @@
             try { speechSynthesis.cancel(); } catch (e) {}
             const u = new SpeechSynthesisUtterance(text);
             if (pickedVoice) u.voice = pickedVoice;
-            u.rate = opts.rate || 0.92;
-            u.pitch = opts.pitch || 1.05;
+            u.rate = opts.rate || 0.9;
+            u.pitch = opts.pitch || 0.95;
             let done = false;
             ttsSpeaking = true;
             const finish = () => { if (!done) { done = true; ttsSpeaking = false; $replay.classList.remove('talking'); resolve(); } };
@@ -631,9 +638,107 @@
         });
     }
 
+    // ==================== PRE-RECORDED NARRATION (neural voice) ====================
+    // Per VISION.md, narration is a first-class asset: warm neural voice lines
+    // (edge-tts, en-GB-Ryan) generated ahead of time into audio/*.mp3 and played
+    // through a soft stone-chamber reverb so the mentor sounds like he is in the
+    // scene. Browser speechSynthesis above remains only a fallback.
+    const VOICE_IDS = (() => {
+        const ids = ['demo-intro','demo-word','demo-sealed','round-1','round-2',
+            'trace-first-2-C','trace-first-1-L','trace-first-0-D',
+            'say-first','say-again','read-miss',
+            'under-2','under-1','under-0','under-retry',
+            'read-2','read-1','read-0',
+            'praise-0','praise-1','praise-2','finish'];
+        for (const ch of 'ACDEKLMPST') ids.push(`letter-${ch}`, `trace-${ch}`, `glow-${ch}`, `miss-${ch}`);
+        return new Set(ids);
+    })();
+    const voiceCache = new Map();      // id -> Promise<AudioBuffer|null>
+    let narrNodes = null;              // reverb sends
+    let narrSource = null;             // currently playing narration
+    let narrToken = 0;
+    let currentNarr = null;            // {id, text, opts} for the 🔊 replay button
+
+    function loadVoice(id) {
+        if (!audioCtx) return Promise.resolve(null);
+        if (!voiceCache.has(id)) {
+            voiceCache.set(id, (async () => {
+                try {
+                    const resp = await fetch(`audio/${id}.mp3`);
+                    if (!resp.ok) return null;
+                    return await audioCtx.decodeAudioData(await resp.arrayBuffer());
+                } catch (e) { return null; }
+            })());
+        }
+        return voiceCache.get(id);
+    }
+
+    function ensureNarrNodes() {
+        if (narrNodes || !audioCtx) return;
+        // procedural impulse response: a short, soft stone-hall tail
+        const rate = audioCtx.sampleRate, len = Math.floor(rate * 1.6);
+        const imp = audioCtx.createBuffer(2, len, rate);
+        for (let c = 0; c < 2; c++) {
+            const d = imp.getChannelData(c);
+            for (let i = 0; i < len; i++) d[i] = (Math.random()*2 - 1) * Math.pow(1 - i/len, 2.6);
+        }
+        const conv = audioCtx.createConvolver();
+        conv.buffer = imp;
+        const dry = audioCtx.createGain(); dry.gain.value = 1.0;
+        const wet = audioCtx.createGain(); wet.gain.value = 0.16;
+        dry.connect(audioCtx.destination);
+        conv.connect(wet); wet.connect(audioCtx.destination);
+        narrNodes = { dry, conv };
+    }
+
+    function stopNarration() {
+        narrToken++;
+        if (narrSource) { try { narrSource.stop(); } catch (e) {} narrSource = null; }
+        if ('speechSynthesis' in window) { try { speechSynthesis.cancel(); } catch (e) {} }
+        ttsSpeaking = false;
+        $replay.classList.remove('talking');
+    }
+
+    function playVoice(buffer) {
+        return new Promise(resolve => {
+            ensureNarrNodes();
+            const src = audioCtx.createBufferSource();
+            src.buffer = buffer;
+            src.connect(narrNodes.dry);
+            src.connect(narrNodes.conv);
+            narrSource = src;
+            ttsSpeaking = true;
+            $replay.classList.add('talking');
+            let done = false;
+            const finish = () => {
+                if (done) return;
+                done = true;
+                if (narrSource === src) { narrSource = null; ttsSpeaking = false; $replay.classList.remove('talking'); }
+                resolve();
+            };
+            src.onended = finish;
+            src.start();
+            setTimeout(finish, buffer.duration * 1000 + 400);   // safety
+        });
+    }
+
+    // The one narration entry point: recorded line if we have it, TTS if not.
+    async function narrate(id, text, captionHtml, opts) {
+        currentNarr = { id, text, opts };
+        if (captionHtml !== null) showCaption(captionHtml || text);
+        stopNarration();
+        const tk = narrToken;
+        if (audioCtx && id && VOICE_IDS.has(id)) {
+            const buf = await loadVoice(id);
+            if (tk !== narrToken) return;          // superseded while loading
+            if (buf) { await playVoice(buf); return; }
+        }
+        await speak(text, null, opts);             // caption already shown
+    }
+
     function replayLine() {
-        if (!currentLine) return;
-        speak(currentLine, null);   // re-speak without touching the caption
+        if (!currentNarr) return;
+        narrate(currentNarr.id, currentNarr.text, null, currentNarr.opts);
     }
     $replay.addEventListener('click', e => { e.stopPropagation(); replayLine(); });
 
@@ -1348,7 +1453,7 @@
         scene.airWord = [];
         const w = ROUNDS[0].word;
 
-        await speak(
+        await narrate('demo-intro',
             'Watch closely, young mage. I will cast a binding spell — by spelling.',
             '<span class="mentor">Mentor:</span> “Watch closely, young mage. I will cast a binding spell — by <em>spelling</em>.”'
         );
@@ -1360,7 +1465,7 @@
             if (my !== session) return;
             scene.airLetter = { ch, t: 0, dur: 1.3 };
             scene.wandGlow = 1.4;
-            const said = speak(ch, null);
+            const said = narrate('letter-' + ch, ch, null);
             await sleep(1400);
             await said;
             if (my !== session) return;
@@ -1372,7 +1477,8 @@
 
         if (my !== session) return;
         scene.wandGlow = 0.6;
-        await speak(w.toLowerCase() + '!', `<span class="mentor">Mentor:</span> “${w}!”`, { rate: 0.8 });
+        await narrate(w === 'CLASP' ? 'demo-word' : null, w.toLowerCase() + '!',
+                      `<span class="mentor">Mentor:</span> “${w}!”`, { rate: 0.8 });
         if (my !== session) return;
 
         // the word flips and flies to the door as a clasp
@@ -1393,7 +1499,7 @@
 
         await sleep(500);
         if (my !== session) return;
-        await speak(
+        await narrate('demo-sealed',
             'There. The word is the lock, and the door is sealed. But a spell cast by one mage can be dispelled by another. ' +
             'Trace each letter and say its name. Then underline the word, and read it aloud. The clasp will let go.',
             '<span class="mentor">Mentor:</span> “The word is the lock. Trace each letter and say its name, underline the word, and read it aloud — and the clasp will let go.”'
@@ -1433,7 +1539,7 @@
                 'Another door, another clasp. Trace the letters, say their names, underline, and read.',
                 'The last seal. This one is yours alone, young mage.',
             ];
-            await speak(lines[ix], `<span class="mentor">Mentor:</span> “${lines[ix]}”`);
+            await narrate('round-' + ix, lines[ix], `<span class="mentor">Mentor:</span> “${lines[ix]}”`);
             if (my !== session) return;
         }
         nextTraceStep();
@@ -1478,11 +1584,11 @@
                 : support() === 1
                 ? `Trace each letter and say its name. Start with ${ch}.`
                 : `Dispel the clasp. It starts with ${ch}.`;
-            await speak(intro, intro);
+            await narrate(`trace-first-${support()}-${ch}`, intro, intro);
         } else if (support() === 2) {
-            await speak(`Now trace the letter ${ch}.`, `Now trace the letter ${ch}.`);
+            await narrate('trace-' + ch, `Now trace the letter ${ch}.`, `Now trace the letter ${ch}.`);
         } else if (support() === 1) {
-            await speak(ch, null);
+            await narrate('letter-' + ch, ch, null);
         }
         if (my !== session) return;
     }
@@ -1636,8 +1742,9 @@
              { transform: 'translate(-50%,0)' }],
             { duration: 260, easing: 'ease-out' });
         drawSlate();
-        await speak(`Here — the shape of ${currentLetter()} glows for you. Trace over it.`,
-                    `The shape of ${currentLetter()} glows for you — trace over it.`);
+        await narrate('glow-' + currentLetter(),
+                      `Here — the shape of ${currentLetter()} glows for you. Trace over it.`,
+                      `The shape of ${currentLetter()} glows for you — trace over it.`);
         if (my !== session) return;
     }
 
@@ -1674,25 +1781,25 @@
         $voicePanel.classList.add('visible');
 
         if (support() === 2 && letterIx === 0) {
-            await speak(`Well traced! Now say its name out loud.`, 'Now say its name out loud.');
+            await narrate('say-first', `Well traced! Now say its name out loud.`, 'Now say its name out loud.');
         } else if (support() === 2) {
-            await speak('Say its name.', 'Say its name.');
+            await narrate('say-again', 'Say its name.', 'Say its name.');
         }
         if (my !== session || state !== 'say') return;
 
         startListening(
             heard => matchesLetterName(heard, ch),
             () => letterSaid(),
-            () => sayMiss(`Hmm — say the name of the letter ${ch}.`)
+            () => sayMiss('miss-' + ch, `Hmm — say the name of the letter ${ch}.`)
         );
     }
 
-    function sayMiss(hint) {
+    function sayMiss(id, hint) {
         // never punitive: a wiggle and a gentle re-offer, mic keeps listening
         playSoftFail();
         $voiceGlyph.classList.add('wrong');
         setTimeout(() => $voiceGlyph.classList.remove('wrong'), 600);
-        speak(hint, hint);
+        narrate(id, hint, hint);
     }
 
     function letterSaid() {
@@ -1731,7 +1838,7 @@
             : support() === 1
             ? 'Now underline the word.'
             : 'Underline it.';
-        await speak(line, line);
+        await narrate('under-' + support(), line, line);
         if (my !== session) return;
     }
 
@@ -1773,8 +1880,8 @@
             scene.underlineT = 0;
             $underLine.style.width = '0px';
             playSoftFail();
-            speak('Sweep all the way under the word, left to right.',
-                  'Sweep all the way under the word, left to right.');
+            narrate('under-retry', 'Sweep all the way under the word, left to right.',
+                    'Sweep all the way under the word, left to right.');
         }
     }, { passive: false });
     $underTrack.addEventListener('pointercancel', () => { underDown = false; }, { passive: false });
@@ -1795,13 +1902,13 @@
             : support() === 1
             ? 'Now read the word aloud.'
             : 'Read it.';
-        await speak(line, line);
+        await narrate('read-' + support(), line, line);
         if (my !== session || state !== 'read') return;
 
         startListening(
             heard => matchesWord(heard, w),
             () => wordRead(),
-            () => sayMiss('So close — read the word on the clasp.')
+            () => sayMiss('read-miss', 'So close — read the word on the clasp.')
         );
     }
 
@@ -1840,7 +1947,7 @@
             `${word()}. Undone! The letters could not hold you.`,
             `${word()}. Dispelled — no seal can stand against a mage who can spell.`,
         ][roundIx];
-        await speak(praise, `<span class="mentor">Mentor:</span> “${praise}”`);
+        await narrate('praise-' + roundIx, praise, `<span class="mentor">Mentor:</span> “${praise}”`);
         if (my !== session) return;
         await sleep(600);
 
@@ -1867,13 +1974,13 @@
         $pips.style.display = 'none';
         $endWords.innerHTML = wordsFreed.map(w => `<span>${w}</span>`).join('');
         $end.classList.add('visible');
-        speak('Every clasp undone. You are a true dispeller of words, young mage.', null);
+        narrate('finish', 'Every clasp undone. You are a true dispeller of words, young mage.', null);
     }
 
     function resetAll() {
         session++;
         stopListening();
-        try { speechSynthesis.cancel(); } catch (e) {}
+        stopNarration();
         state = 'title';
         roundIx = 0; letterIx = 0; litCount = 0;
         wordsFreed = [];
@@ -1892,6 +1999,9 @@
     async function beginSession() {
         session++;
         await initAudio();
+        // warm the narration cache so the mentor speaks without a stutter
+        ['demo-intro','demo-sealed','demo-word','letter-C','letter-L','letter-A',
+         'letter-S','letter-P','trace-first-2-C','say-first'].forEach(loadVoice);
         // Warm up speech synthesis inside the user gesture (required on iOS)
         if ('speechSynthesis' in window) {
             try { const u = new SpeechSynthesisUtterance(''); speechSynthesis.speak(u); } catch (e) {}
