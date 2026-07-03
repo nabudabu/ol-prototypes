@@ -32,9 +32,10 @@
           Round 2 — LAMP   Reduced:     outlines faint; narration shortens
           Round 3 — DESK   Independent: no outlines unless a trace fails
 
-        Narration: pre-recorded neural voice lines (edge-tts, en-GB-Ryan) in
-        audio/*.mp3, played through a soft WebAudio reverb — regenerate with
-        the manifest in the narrate() section if lines change. Browser
+        Narration: pre-recorded neural voice lines (edge-tts, en-US-Christopher
+        — a mature, clear American voice; the learners are beginning readers,
+        so no non-US accent) in audio/*.mp3, played through a soft WebAudio
+        reverb — regenerate with generate-narration.py if lines change. Browser
         SpeechSynthesis is the fallback for any missing line. A persistent 🔊
         button replays the current line. Speech input: Web Speech API with
         fuzzy, forgiving matching; a tap-to-confirm "I said it" button is
@@ -584,13 +585,13 @@
     function pickVoice() {
         const vs = speechSynthesis.getVoices();
         if (!vs.length) return;
-        // fallback only — rank the least robotic voices first, wizardly ones ahead
+        // fallback only — least robotic first; American English to match the
+        // recorded mentor (beginning readers shouldn't juggle accents)
         pickedVoice =
-            vs.find(v => /en/i.test(v.lang) && /natural/i.test(v.name) && /ryan|guy|thomas|george/i.test(v.name)) ||
-            vs.find(v => /google uk english male/i.test(v.name)) ||
-            vs.find(v => /en/i.test(v.lang) && /daniel/i.test(v.name)) ||
-            vs.find(v => /google uk english/i.test(v.name)) ||
+            vs.find(v => /en[-_]?us/i.test(v.lang) && /natural/i.test(v.name) && /christopher|guy|andrew|eric/i.test(v.name)) ||
             vs.find(v => /google us english/i.test(v.name)) ||
+            vs.find(v => /en[-_]?us/i.test(v.lang) && /alex|samantha/i.test(v.name)) ||
+            vs.find(v => /en[-_]?us/i.test(v.lang)) ||
             vs.find(v => /^en/i.test(v.lang)) || vs[0];
     }
     if ('speechSynthesis' in window) {
@@ -655,7 +656,7 @@
     })();
     const voiceCache = new Map();      // id -> Promise<AudioBuffer|null>
     let narrNodes = null;              // reverb sends
-    let narrSource = null;             // currently playing narration
+    const liveSources = new Set();     // every started narration source, so stop kills them ALL
     let narrToken = 0;
     let currentNarr = null;            // {id, text, opts} for the 🔊 replay button
 
@@ -693,28 +694,36 @@
 
     function stopNarration() {
         narrToken++;
-        if (narrSource) { try { narrSource.stop(); } catch (e) {} narrSource = null; }
+        liveSources.forEach(src => { try { src.stop(); } catch (e) {} });
+        liveSources.clear();
         if ('speechSynthesis' in window) { try { speechSynthesis.cancel(); } catch (e) {} }
         ttsSpeaking = false;
         $replay.classList.remove('talking');
     }
 
-    function playVoice(buffer) {
+    // Resolves true if the line actually played. Never starts a source while
+    // the context isn't running: on phones the mic session can suspend
+    // WebAudio, and a source started while suspended queues silently — then
+    // every queued line bursts out at once when the mic lets go.
+    async function playVoice(buffer) {
+        if (audioCtx.state !== 'running') { try { await audioCtx.resume(); } catch (e) {} }
+        if (audioCtx.state !== 'running') return false;
+        ensureNarrNodes();
         return new Promise(resolve => {
-            ensureNarrNodes();
             const src = audioCtx.createBufferSource();
             src.buffer = buffer;
             src.connect(narrNodes.dry);
             src.connect(narrNodes.conv);
-            narrSource = src;
+            liveSources.add(src);
             ttsSpeaking = true;
             $replay.classList.add('talking');
             let done = false;
             const finish = () => {
                 if (done) return;
                 done = true;
-                if (narrSource === src) { narrSource = null; ttsSpeaking = false; $replay.classList.remove('talking'); }
-                resolve();
+                liveSources.delete(src);
+                if (liveSources.size === 0) { ttsSpeaking = false; $replay.classList.remove('talking'); }
+                resolve(true);
             };
             src.onended = finish;
             src.start();
@@ -726,14 +735,26 @@
     async function narrate(id, text, captionHtml, opts) {
         currentNarr = { id, text, opts };
         if (captionHtml !== null) showCaption(captionHtml || text);
+        // Release the mic while the mentor talks — an open recognition session
+        // ducks/suspends narration playback on phones (and would hear him).
+        const hadMic = !!recognition;
+        if (hadMic) stopListening();
         stopNarration();
         const tk = narrToken;
+        let spoken = false;
         if (audioCtx && id && VOICE_IDS.has(id)) {
             const buf = await loadVoice(id);
             if (tk !== narrToken) return;          // superseded while loading
-            if (buf) { await playVoice(buf); return; }
+            if (buf) spoken = await playVoice(buf);
         }
-        await speak(text, null, opts);             // caption already shown
+        if (!spoken) {
+            if (tk !== narrToken) return;
+            await speak(text, null, opts);         // caption already shown
+        }
+        // hand the mic back if this step is still waiting on the learner's voice
+        if (tk === narrToken && hadMic && lastListen && (state === 'say' || state === 'read')) {
+            startListening(lastListen.matcher, lastListen.onMatch, lastListen.onMiss);
+        }
     }
 
     function replayLine() {
@@ -747,6 +768,7 @@
     // The "I said it" button is always available — mic must never block the loop.
     let recognition = null;
     let listenToken = 0;
+    let lastListen = null;   // last matcher set, so narration can hand the mic back
 
     function stopListening() {
         listenToken++;
@@ -760,6 +782,7 @@
 
     // matcher(transcript) -> true when accepted. onMatch/onMiss called on results.
     function startListening(matcher, onMatch, onMiss) {
+        lastListen = { matcher, onMatch, onMiss };
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SR || micBlocked) { $voiceHint.textContent = 'No mic? Tap “I said it” below'; return; }
         const token = ++listenToken;
