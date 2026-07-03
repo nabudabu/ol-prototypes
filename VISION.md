@@ -18,9 +18,13 @@ This is the line we refuse to cross: **these are not workbook exercises in a fan
 
 Reading skills are not *reframed* as magic skills — they are *built as* magic skills from the start. Phoneme awareness is incantation. Decoding is spell-casting. Fluency is mastery of the arcane. The learner is a young mage progressing through a magical world, and the reading skills they acquire are literally the abilities they wield, the rooms they open, and the regions they reach.
 
-### The World Is Made of Words
+### The World Is Made of Words — And the Books Have Been Scrambled
 
-The entire game takes place inside a **book world** — a reality woven from words, letters, and sounds. This framing isn't decoration; it's what makes every mechanic make sense. In the book world:
+The entire game takes place **inside books**. The player is transported into the pages themselves and moves through a world woven from words, letters, and sounds. But this world is broken: an **evil spell has scrambled the books**, jumbling the letters, words, and sentences into chaos. Paths that were once readable sentences have collapsed; words that named real things have been shattered into loose, drifting letters; meaning has been torn out of the pages.
+
+The player's quest is to **restore the books by reading** — to un-scramble the world one skill at a time. Every act of decoding puts a letter back in its place, re-forms a broken word, or rebuilds a sentence-bridge. The antagonist's scrambling spell is the source of every obstacle, and the player's growing reading ability is the only thing that can reverse it. This gives the whole game a single, legible motivation: **the world is disordered language, and reading is what puts it back in order.**
+
+This framing isn't decoration; it's what makes every mechanic make sense. In the book world:
 
 - **Letters are physical things** — they can be drawn, broken, lit, stacked, and assembled.
 - **Sounds have force** — a spoken phoneme is wind, fire, or light; the wrong sound does nothing, the right one moves the world.
@@ -81,6 +85,28 @@ The final form: a **3D world inspired by Sky: Children of the Light** where the 
 - **Mastery through play.** No worksheets in disguise. If it doesn't feel like a game, it's not ready.
 - **Curriculum-sequenced.** Games aren't random — they follow a progression that builds skills systematically, from phonemic awareness through fluency. The sequence is also the mage's arc: candle before storm.
 - **One world, one mage.** Every prototype belongs to the same book world and the same rising-mage story. The narrative is what makes a pile of mini-games feel like one game.
+
+## Production Quality & Core Technology
+
+These are cross-cutting requirements that every prototype and every phase must honor. They are not polish for "later" — for a dyslexic learner, they are load-bearing.
+
+### Audio-First, Because the Learners Can't Rely on Reading
+
+Our learners are dyslexic. **We cannot deliver instructions as written text and assume they'll be read.** Every instruction, prompt, and piece of feedback must be delivered as **high-quality spoken voice narration**, and the learner must be able to **replay any instruction on demand** (a clearly visible, always-available "hear it again" control). Text on screen is a support for the audio, never a replacement for it.
+
+For prototypes, browser speech synthesis with a replay button is acceptable as a stand-in. For anything we put in front of real learners, we want **warm, natural, pre-recorded neural TTS or human voice-over** — robotic narration undermines trust and comprehension for exactly the kids we serve. Narration is a first-class asset, budgeted and produced deliberately.
+
+### Legitimate Speech & Symbol Recognition
+
+The magic only works if the game can actually tell what the learner did. We need real recognition across three levels, and we should be honest about how hard each one is:
+
+- **Grapheme / letter tracing (solid today).** Recognizing whether a learner drew the correct letter shape is done on-device with canvas stroke-tracing and an accuracy score. Our existing prototypes already do this reliably. Low risk.
+- **Word recognition (good enough for prototypes).** When a learner reads a whole word aloud, the browser Web Speech API can transcribe it. Usable now with forgiving, fuzzy matching — but it is imperfect for children and for dyslexic speech, so thresholds must be lenient and failure must never feel punitive.
+- **Phoneme recognition (the hard problem — needs real tech).** Detecting individual sounds (isolated /s/, /a/, blends) is **not** something the browser Web Speech API does well; it is built for words, not phonemes. Doing this legitimately requires dedicated speech technology — a pronunciation-assessment service that returns **per-phoneme accuracy scores** (e.g., Azure Speech pronunciation assessment, SpeechAce, or a hosted phoneme-level model such as wav2vec2/allosaurus), or forced-alignment tooling. A prototype tool can *wire up* such an API if we supply keys/endpoints, but it cannot invent reliable phoneme detection from scratch in the browser. **Plan: prototype with Web Speech + Web Audio heuristics; commit to a pronunciation-assessment API before phoneme-level mechanics ship.**
+
+### Graphics Quality
+
+Our current prototypes render with basic canvas shapes, and it shows. We want a meaningfully higher visual bar. The realistic path in a browser prototype is an **asset pipeline, not hand-coded shapes**: produce real art (backgrounds, characters, letter-creatures, effects) as SVG/PNG/AI-generated image assets, then have the prototype compose and animate them, optionally with a lightweight WebGL/Three.js layer for depth and particles. We should treat art as something authored separately and imported — asking a code generator to "draw beautiful graphics" from primitives will stay crude. Build the mechanic first with clean placeholder art, then run a dedicated art pass.
 
 ## Target Audience
 

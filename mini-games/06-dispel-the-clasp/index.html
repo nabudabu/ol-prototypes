@@ -1,0 +1,1918 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!--
+        Mini-Game #06: Dispel the Clasp  (Dyspell — Verbal Spelling)
+        Curriculum: Decoding / Encoding → symbol-to-word verbal spelling
+                    (trace letter shapes + say letter NAMES, underline the word,
+                     read the whole word aloud)
+        Storyboard: "Dyspell verbal prototype.pdf"
+
+        Concept (per VISION.md — the reading skill IS the magic):
+          A mentor conjures a word letter-by-letter — drawing each shape in the
+          air while speaking its name — and the finished word becomes a magical
+          CLASP sealing a door. A spell cast by one mage can be dispelled by
+          another: the player traces each letter on a rune-slate saying its
+          name, underlines the whole word with a swipe, and reads the word
+          aloud. The spelling IS the counter-spell. Done right, the clasp's
+          magic simply dissipates — letters scatter to smoke, the door opens.
+          No red X, no "wrong!"; failure just means the magic holds and the
+          mentor gently re-offers the step.
+
+        Modality chain (per curriculum-mapping.md):
+          Visual+Auditory (see the mentor conjure; hear each letter name)
+            → Tactile (trace each letter on the rune-slate, graded leniently)
+            → Speech (say each letter's NAME as it is finished)
+            → Tactile (underline the whole word with a swipe)
+            → Speech (read the whole WORD aloud)
+            → world responds (clasp dissipates, door opens)
+
+        Difficulty progression (one word per round):
+          Round 1 — CLASP  Supported:   letter outlines shown; full narration
+          Round 2 — LAMP   Reduced:     outlines faint; narration shortens
+          Round 3 — DESK   Independent: no outlines unless a trace fails
+
+        Narration: browser SpeechSynthesis; every prompt is spoken, with a
+        persistent 🔊 replay button. Speech input: Web Speech API with fuzzy,
+        forgiving matching; a tap-to-confirm "I said it" button is always
+        available so a missing/denied mic never blocks the loop.
+
+        Rendering: Three.js (CDN, like web fonts — per project convention,
+        prototypes #01–#05). Real 3D scene: arched door with swinging leaves,
+        glyph-sprite clasp, particle magic. The DOM carries the UI layer
+        (rune-slate, voice panels); the underline swipe zone is positioned by
+        projecting the clasp word from world space to screen space.
+    -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Dispel the Clasp</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Cinzel:wght@700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            width: 100%; height: 100%;
+            overflow: hidden;
+            background: #0b0714;
+            color: #fff;
+            touch-action: none;
+            -webkit-user-select: none;
+            user-select: none;
+            font-family: 'Cinzel', Georgia, serif;
+        }
+        canvas { display: block; }
+        #scene { position: fixed; inset: 0; }
+
+        .screen {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 40;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.4s ease;
+        }
+        .screen.visible { opacity: 1; }
+
+        #title-screen {
+            background: radial-gradient(ellipse at center, rgba(28,16,44,0.94), rgba(11,7,20,0.98));
+        }
+        #title-screen h1 {
+            font-family: 'Cinzel Decorative', 'Cinzel', serif;
+            font-size: clamp(26px, 7vw, 52px);
+            letter-spacing: 4px;
+            color: #d9c6ff;
+            text-shadow: 0 0 40px rgba(150,100,255,0.55), 0 0 80px rgba(120,80,255,0.25);
+            margin-bottom: 16px;
+            text-align: center;
+            line-height: 1.3;
+        }
+        #title-screen .subtitle {
+            font-size: clamp(10px, 2.4vw, 13px);
+            letter-spacing: 3px;
+            color: rgba(217,198,255,0.5);
+            margin-bottom: 36px;
+            text-align: center;
+            padding: 0 24px;
+            text-transform: uppercase;
+        }
+        .prompt {
+            font-size: clamp(12px, 3vw, 16px);
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            animation: breathe 3s ease-in-out infinite;
+            color: rgba(217,198,255,0.55);
+        }
+
+        #end-screen {
+            background: radial-gradient(ellipse at center, rgba(28,16,44,0.92), rgba(11,7,20,0.97));
+        }
+        #end-screen .end-label {
+            font-family: 'Cinzel Decorative', 'Cinzel', serif;
+            font-size: clamp(22px, 6vw, 40px);
+            letter-spacing: 3px;
+            color: #ffd98f;
+            text-shadow: 0 0 30px rgba(255,190,90,0.5);
+            margin-bottom: 14px;
+            text-align: center;
+        }
+        #end-screen .end-sub {
+            font-size: clamp(12px, 3vw, 15px);
+            letter-spacing: 2px;
+            color: rgba(217,198,255,0.6);
+            margin-bottom: 10px;
+            text-align: center;
+            padding: 0 30px;
+            line-height: 1.6;
+        }
+        #end-words {
+            display: flex; gap: 14px; margin: 14px 0 30px;
+        }
+        #end-words span {
+            font-family: 'Cinzel Decorative', serif;
+            font-size: clamp(14px, 3.6vw, 20px);
+            letter-spacing: 3px;
+            color: #b8ffcf;
+            text-shadow: 0 0 14px rgba(120,255,170,0.5);
+        }
+
+        /* Persistent "hear it again" — required for dyslexic learners */
+        #replay-btn {
+            position: fixed;
+            top: max(env(safe-area-inset-top, 10px), 10px);
+            left: max(env(safe-area-inset-left, 10px), 10px);
+            width: 58px; height: 58px;
+            border: 2px solid rgba(217,198,255,0.5);
+            background: rgba(40,24,66,0.82);
+            border-radius: 50%;
+            font-size: 26px;
+            color: #d9c6ff;
+            cursor: pointer;
+            z-index: 35;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 18px rgba(150,100,255,0.35);
+            -webkit-tap-highlight-color: transparent;
+        }
+        #replay-btn.visible { display: flex; }
+        #replay-btn:active { background: rgba(80,50,130,0.9); }
+        #replay-btn.talking { animation: talk-pulse 0.9s ease-in-out infinite; }
+
+        /* Round progress pips */
+        #round-pips {
+            position: fixed;
+            top: max(env(safe-area-inset-top, 14px), 14px);
+            left: 50%;
+            transform: translateX(-50%);
+            display: none;
+            gap: 10px;
+            z-index: 30;
+            pointer-events: none;
+        }
+        .pip {
+            width: 12px; height: 12px;
+            border-radius: 50%;
+            border: 1.5px solid rgba(217,198,255,0.5);
+            background: transparent;
+            transition: background 0.4s ease, box-shadow 0.4s ease;
+        }
+        .pip.now  { background: rgba(150,100,255,0.7); box-shadow: 0 0 10px rgba(150,100,255,0.8); }
+        .pip.done { background: rgba(120,255,170,0.8); border-color: rgba(120,255,170,0.8); box-shadow: 0 0 10px rgba(120,255,170,0.6); }
+
+        /* Caption — text support beneath the spoken narration */
+        #caption {
+            position: fixed;
+            bottom: 3.5%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: min(88vw, 560px);
+            font-size: clamp(13px, 3.6vw, 18px);
+            line-height: 1.55;
+            letter-spacing: 1px;
+            color: #efe6ff;
+            text-align: center;
+            z-index: 26;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.35s ease;
+            text-shadow: 0 2px 14px rgba(0,0,0,0.9);
+        }
+        #caption.visible { opacity: 1; }
+        #caption .mentor { color: #c9a5ff; font-style: italic; }
+        #caption .cont {
+            display: block;
+            margin-top: 12px;
+            font-size: clamp(10px, 2.4vw, 12px);
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            color: rgba(217,198,255,0.5);
+            animation: breathe 2.4s ease-in-out infinite;
+        }
+
+        /* ---------- Bottom panels (rune-slate / voice) ---------- */
+        .panel {
+            position: fixed;
+            left: 50%;
+            bottom: max(env(safe-area-inset-bottom, 14px), 14px);
+            transform: translate(-50%, 26px);
+            z-index: 25;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease, transform 0.3s cubic-bezier(.2,1.3,.4,1);
+        }
+        .panel.visible { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+
+        .panel-head {
+            font-size: clamp(14px, 3.8vw, 19px);
+            letter-spacing: 2px;
+            color: #efe6ff;
+            margin-bottom: 10px;
+            text-align: center;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.8);
+        }
+        .panel-head b { color: #ffd98f; font-size: 1.3em; font-family: 'Cinzel Decorative', serif; }
+        .panel-hint {
+            margin-top: 10px;
+            font-size: clamp(10px, 2.6vw, 13px);
+            letter-spacing: 2.5px;
+            text-transform: uppercase;
+            color: rgba(217,198,255,0.55);
+            text-align: center;
+            min-height: 1.3em;
+        }
+
+        #slate-frame {
+            position: relative;
+            width: min(64vw, 300px, 36vh);
+            height: min(64vw, 300px, 36vh);
+            border-radius: 18px;
+            background: radial-gradient(ellipse at 50% 30%, rgba(52,32,80,0.72), rgba(16,10,26,0.94));
+            border: 2px solid rgba(150,100,255,0.45);
+            box-shadow: 0 0 36px rgba(150,100,255,0.28), inset 0 0 40px rgba(0,0,0,0.6);
+            overflow: hidden;
+            touch-action: none;
+        }
+        #slate-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+        /* voice panel: say a letter name / read the word */
+        #voice-glyph {
+            font-family: 'Cinzel Decorative', 'Cinzel', serif;
+            line-height: 1.1;
+            color: #ffe9c4;
+            text-shadow: 0 0 28px rgba(255,190,90,0.8), 0 0 60px rgba(255,160,60,0.4);
+            animation: rune-pulse 1.7s ease-in-out infinite;
+            text-align: center;
+            padding: 4px 10px;
+        }
+        #voice-glyph.letter { font-size: min(30vw, 120px); }
+        #voice-glyph.word   { font-size: min(15vw, 64px); letter-spacing: 8px; }
+        #voice-glyph.wrong  { animation: rune-wrong 0.55s ease; }
+        #mic-ring {
+            margin-top: 10px;
+            width: 54px; height: 54px;
+            border-radius: 50%;
+            border: 2px solid rgba(150,100,255,0.55);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 24px;
+            color: #c9a5ff;
+            box-shadow: 0 0 16px rgba(150,100,255,0.4);
+        }
+        #mic-ring.listening { animation: mic-listen 0.8s ease-in-out infinite; }
+        #said-btn {
+            margin-top: 12px;
+            border: 1.5px solid rgba(217,198,255,0.45);
+            background: rgba(40,24,66,0.85);
+            border-radius: 26px;
+            padding: 13px 26px;
+            font-family: 'Cinzel', Georgia, serif;
+            font-size: clamp(13px, 3.4vw, 16px);
+            letter-spacing: 2px;
+            color: #efe6ff;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+        }
+        #said-btn:active { background: rgba(80,50,130,0.9); }
+
+        /* underline swipe track — positioned over the clasp word in the scene */
+        #under-track {
+            position: fixed;
+            z-index: 24;
+            display: none;
+            touch-action: none;
+            border-radius: 14px;
+        }
+        #under-track.visible { display: block; }
+        #under-track .zone-glow {
+            position: absolute; inset: 0;
+            border-radius: 14px;
+            border: 1.5px dashed rgba(255,217,143,0.5);
+            animation: breathe 2.2s ease-in-out infinite;
+        }
+        #under-line {
+            position: absolute;
+            left: 0; bottom: 8px;
+            height: 6px;
+            width: 0;
+            border-radius: 3px;
+            background: linear-gradient(90deg, #ffd98f, #ffb44d);
+            box-shadow: 0 0 14px rgba(255,190,90,0.9);
+        }
+
+        @keyframes breathe { 0%,100%{opacity:.35} 50%{opacity:.8} }
+        @keyframes talk-pulse {
+            0%,100% { box-shadow: 0 0 14px rgba(150,100,255,0.35); transform: scale(1); }
+            50%     { box-shadow: 0 0 26px rgba(150,100,255,0.75); transform: scale(1.07); }
+        }
+        @keyframes rune-pulse {
+            0%,100% { transform: scale(1); }
+            50%     { transform: scale(1.05); }
+        }
+        @keyframes mic-listen {
+            0%,100% { transform: scale(1);    box-shadow: 0 0 14px rgba(150,100,255,0.4); }
+            50%     { transform: scale(1.12); box-shadow: 0 0 26px rgba(150,100,255,0.85); }
+        }
+        @keyframes rune-wrong {
+            0%   { transform: translateX(0); }
+            15%  { transform: translateX(-10px); }
+            35%  { transform: translateX(8px); }
+            55%  { transform: translateX(-6px); }
+            75%  { transform: translateX(4px); }
+            100% { transform: translateX(0); }
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="scene"></canvas>
+
+    <button id="replay-btn" aria-label="Hear it again">&#x1F50A;</button>
+    <div id="round-pips"><div class="pip"></div><div class="pip"></div><div class="pip"></div></div>
+    <div id="caption"></div>
+
+    <!-- Rune-slate: trace one letter at a time -->
+    <div id="slate-panel" class="panel">
+        <div class="panel-head" id="slate-head">Trace the letter <b>C</b></div>
+        <div id="slate-frame"><canvas id="slate-canvas"></canvas></div>
+        <div class="panel-hint" id="slate-hint"></div>
+    </div>
+
+    <!-- Voice: say the letter's name, or read the whole word -->
+    <div id="voice-panel" class="panel">
+        <div class="panel-head" id="voice-head">Say its name</div>
+        <div id="voice-glyph" class="letter">C</div>
+        <div id="mic-ring">&#x1F399;</div>
+        <div class="panel-hint" id="voice-hint"></div>
+        <button id="said-btn">&#x2713;&nbsp; I said it</button>
+    </div>
+
+    <!-- Underline swipe zone (positioned over the clasp word) -->
+    <div id="under-track"><div class="zone-glow"></div><div id="under-line"></div></div>
+
+    <div id="title-screen" class="screen visible">
+        <h1>Dispel<br>the Clasp</h1>
+        <p class="subtitle">Unwrite the spell that seals the door</p>
+        <p class="prompt">Tap to Enter</p>
+    </div>
+
+    <div id="end-screen" class="screen">
+        <div class="end-label">Clasp-Breaker</div>
+        <div class="end-sub">Every seal undone. The spells you can spell,<br>no clasp can hold against you.</div>
+        <div id="end-words"></div>
+        <p class="prompt">Tap to Play Again</p>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <script>
+    // ================================================================
+    //  DISPEL THE CLASP — Mini-Game #06  (Dyspell Verbal Spelling)
+    //  Decoding/Encoding → trace letters + say names → underline → read.
+    //  The spelling IS the counter-spell.
+    // ================================================================
+
+    // ==================== CONFIG ====================
+    // One word per round; support fades per curriculum rules.
+    // support: 2 = outlines + full narration, 1 = faint outlines + reminders,
+    //          0 = independent (outline only after a failed trace)
+    const ROUNDS = [
+        { word: 'CLASP', support: 2 },
+        { word: 'LAMP',  support: 1 },
+        { word: 'DESK',  support: 0 },
+    ];
+
+    const TRACE_TOL = 0.16;     // checkpoint hit radius (normalized) — generous for small fingers
+    const ACC_FLOOR = 0.14;     // avg distance mapping to 0% accuracy (lenient)
+
+    // Block-capital letter shapes as ordered stroke checkpoints (normalized, y-down).
+    // Strokes may be drawn with pen lifts; checkpoints must be hit IN ORDER.
+    // Used both to draw the glowing guide and to validate the trace.
+    const LETTERS = {
+        A: [ [[0.18,0.85],[0.34,0.50],[0.50,0.15],[0.66,0.50],[0.82,0.85]],
+             [[0.32,0.62],[0.68,0.62]] ],
+        C: [ [[0.74,0.26],[0.56,0.14],[0.34,0.20],[0.22,0.50],[0.34,0.80],[0.56,0.86],[0.74,0.74]] ],
+        D: [ [[0.30,0.15],[0.30,0.50],[0.30,0.85]],
+             [[0.30,0.15],[0.62,0.20],[0.76,0.50],[0.62,0.80],[0.30,0.85]] ],
+        E: [ [[0.70,0.15],[0.32,0.15],[0.32,0.50],[0.32,0.85],[0.70,0.85]],
+             [[0.32,0.50],[0.64,0.50]] ],
+        K: [ [[0.30,0.15],[0.30,0.50],[0.30,0.85]],
+             [[0.72,0.15],[0.32,0.52],[0.72,0.85]] ],
+        L: [ [[0.32,0.15],[0.32,0.85],[0.72,0.85]] ],
+        M: [ [[0.20,0.85],[0.21,0.15],[0.50,0.62],[0.79,0.15],[0.80,0.85]] ],
+        P: [ [[0.32,0.85],[0.32,0.50],[0.32,0.15],[0.60,0.18],[0.70,0.33],[0.60,0.48],[0.32,0.52]] ],
+        S: [ [[0.70,0.24],[0.46,0.15],[0.28,0.30],[0.42,0.47],[0.60,0.56],[0.72,0.70],[0.52,0.83],[0.28,0.77]] ],
+        T: [ [[0.26,0.15],[0.50,0.15],[0.74,0.15]],
+             [[0.50,0.15],[0.50,0.50],[0.50,0.85]] ],
+    };
+
+    // Fuzzy letter-NAME matching — accept homophones & common mishearings.
+    // These learners are children and dyslexic; never punitive.
+    const NAME_MATCH = {
+        A: ['a','ay','aye','eh','hey','hay','ai'],
+        C: ['c','see','sea','cee','si','seat','she'],
+        D: ['d','dee','de','the','dea','deep'],
+        E: ['e','ee','he','eat','ease','een'],
+        K: ['k','kay','kaye','cay','okay','ok','que'],
+        L: ['l','el','ell','elle','al','hell'],
+        M: ['m','em','im','am','hem','emma'],
+        P: ['p','pee','pea','pe','pea','key'],
+        S: ['s','es','ess','esse','yes','as'],
+        T: ['t','tee','tea','te','ti','tv'],
+    };
+
+    // Fuzzy whole-WORD matching — homophones + edit distance fallback.
+    const WORD_MATCH = {
+        CLASP: ['clasp','clasps','class','claps','clast','grasp','clash','cusp'],
+        LAMP:  ['lamp','lamps','lam','amp','lump','lamb','la'],
+        DESK:  ['desk','desks','disk','dusk','deck','task','death'],
+        STAMP: ['stamp','stamps','stam','stump','samp','stan'],
+    };
+
+    // ==================== STATE ====================
+    // states: title | demo | trace | say | underline | read | dissipate | between | end
+    let state = 'title';
+    let session = 0;            // bumped on restart — cancels stale async sequences
+    let roundIx = 0;
+    let letterIx = 0;           // which letter of the word is being dispelled
+    let litCount = 0;           // letters already dispelled (lit) on the clasp
+    let micBlocked = false;
+    let wordsFreed = [];
+
+    function word()    { return ROUNDS[roundIx].word; }
+    function support() { return ROUNDS[roundIx].support; }
+
+    // ==================== DOM REFS ====================
+    const $ = id => document.getElementById(id);
+    const $title = $('title-screen'), $end = $('end-screen'), $endWords = $('end-words');
+    const $caption = $('caption'), $replay = $('replay-btn'), $pips = $('round-pips');
+    const $slatePanel = $('slate-panel'), $slateHead = $('slate-head'), $slateHint = $('slate-hint');
+    const $voicePanel = $('voice-panel'), $voiceHead = $('voice-head'),
+          $voiceGlyph = $('voice-glyph'), $voiceHint = $('voice-hint'),
+          $micRing = $('mic-ring'), $saidBtn = $('said-btn');
+    const $underTrack = $('under-track'), $underLine = $('under-line');
+    const sceneCanvas = $('scene'), slateCanvas = $('slate-canvas');
+
+    // ==================== UTILS ====================
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+    function catmull(pts, perSeg) {
+        if (pts.length < 3) return pts.map(p => ({ x: p[0], y: p[1] }));
+        const out = [];
+        const P = pts.map(p => ({ x: p[0], y: p[1] }));
+        for (let i = 0; i < P.length - 1; i++) {
+            const p0 = P[i-1] || P[i], p1 = P[i], p2 = P[i+1], p3 = P[i+2] || P[i+1];
+            for (let s = 0; s < perSeg; s++) {
+                const t = s / perSeg, t2 = t*t, t3 = t2*t;
+                out.push({
+                    x: 0.5*((2*p1.x)+(-p0.x+p2.x)*t+(2*p0.x-5*p1.x+4*p2.x-p3.x)*t2+(-p0.x+3*p1.x-3*p2.x+p3.x)*t3),
+                    y: 0.5*((2*p1.y)+(-p0.y+p2.y)*t+(2*p0.y-5*p1.y+4*p2.y-p3.y)*t2+(-p0.y+3*p1.y-3*p2.y+p3.y)*t3),
+                });
+            }
+        }
+        out.push({ x: P[P.length-1].x, y: P[P.length-1].y });
+        return out;
+    }
+
+    // Per-letter precomputed data: flat ordered checkpoints + smooth guide curves
+    const LETTER_DATA = {};
+    for (const [ch, strokes] of Object.entries(LETTERS)) {
+        LETTER_DATA[ch] = {
+            strokes,
+            checkpoints: strokes.flat(),
+            curves: strokes.map(s => catmull(s, 14)),
+        };
+    }
+
+    function levenshtein(a, b) {
+        const m = a.length, n = b.length;
+        if (!m) return n; if (!n) return m;
+        let prev = Array.from({length: n+1}, (_, i) => i);
+        for (let i = 1; i <= m; i++) {
+            const cur = [i];
+            for (let j = 1; j <= n; j++) {
+                cur[j] = Math.min(prev[j] + 1, cur[j-1] + 1, prev[j-1] + (a[i-1] === b[j-1] ? 0 : 1));
+            }
+            prev = cur;
+        }
+        return prev[n];
+    }
+
+    function matchesLetterName(transcript, ch) {
+        const names = NAME_MATCH[ch] || [ch.toLowerCase()];
+        const norm = transcript.toLowerCase().replace(/[^a-z ]/g, '');
+        if (names.includes(norm.replace(/ /g, ''))) return true;
+        return norm.split(/\s+/).some(tok => names.includes(tok));
+    }
+
+    function matchesWord(transcript, w) {
+        const target = w.toLowerCase();
+        const list = WORD_MATCH[w] || [target];
+        const norm = transcript.toLowerCase().replace(/[^a-z ]/g, '');
+        const toks = norm.split(/\s+/).filter(Boolean);
+        toks.push(norm.replace(/ /g, ''));
+        const maxDist = target.length <= 4 ? 1 : 2;
+        return toks.some(tok => list.includes(tok) || levenshtein(tok, target) <= maxDist);
+    }
+
+    // ==================== SOUND EFFECTS (WebAudio) ====================
+    let audioCtx = null;
+    async function initAudio() {
+        if (!audioCtx) { try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; } }
+        if (audioCtx.state === 'suspended') { try { await audioCtx.resume(); } catch (e) {} }
+    }
+    function tone(freq, dur, type, vol, delay) {
+        if (!audioCtx) return;
+        const t = audioCtx.currentTime + (delay || 0);
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type || 'sine';
+        osc.frequency.value = freq;
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.linearRampToValueAtTime(vol || 0.08, t + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + (dur || 0.4));
+        osc.start(t); osc.stop(t + (dur || 0.4) + 0.05);
+    }
+    function playTraceDone()  { [392, 523, 659].forEach((f,i) => tone(f, 0.5, 'triangle', 0.08, i*0.05)); }
+    function playLetterLit()  { [523, 784].forEach((f,i) => tone(f, 0.6, 'sine', 0.09, i*0.07)); }
+    function playSoftFail()   { tone(196, 0.35, 'sine', 0.05); tone(165, 0.4, 'sine', 0.04, 0.06); }
+    function playSealThunk()  { tone(98, 0.5, 'triangle', 0.14); tone(65, 0.7, 'sine', 0.12, 0.04); }
+    function playUnderline()  { if (!audioCtx) return; const t = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator(), g = audioCtx.createGain();
+        osc.type = 'sine'; osc.frequency.setValueAtTime(300, t);
+        osc.frequency.exponentialRampToValueAtTime(900, t + 0.35);
+        g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.07, t + 0.05);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
+        osc.connect(g); g.connect(audioCtx.destination); osc.start(t); osc.stop(t + 0.45); }
+    function playDissipate()  { [1047, 880, 784, 659, 523, 392].forEach((f,i) => tone(f, 0.8, 'sine', 0.07, i*0.09)); }
+    function playDoorOpen()   { [262, 330, 392, 523, 659, 784].forEach((f,i) => tone(f, 1.1, 'triangle', 0.08, i*0.1)); }
+
+    // ==================== NARRATION (SpeechSynthesis) ====================
+    // Every instruction is spoken; 🔊 replays the current line any time.
+    let currentLine = '';
+    let pickedVoice = null;
+    let ttsSpeaking = false;   // mic results are ignored while the game itself talks
+
+    function pickVoice() {
+        const vs = speechSynthesis.getVoices();
+        if (!vs.length) return;
+        pickedVoice =
+            vs.find(v => /en/i.test(v.lang) && /samantha|karen|serena|moira|female|google uk english female/i.test(v.name)) ||
+            vs.find(v => /google us english/i.test(v.name)) ||
+            vs.find(v => /^en/i.test(v.lang)) || vs[0];
+    }
+    if ('speechSynthesis' in window) {
+        pickVoice();
+        speechSynthesis.onvoiceschanged = pickVoice;
+    }
+
+    function showCaption(html) {
+        $caption.innerHTML = html;
+        // if a bottom panel is open, the caption sits just above it instead
+        const panel = [$slatePanel, $voicePanel].find(p => p.classList.contains('visible'));
+        if (panel) {
+            // +58 clears the panel's 26px entrance offset plus breathing room
+            const top = panel.getBoundingClientRect().top;
+            $caption.style.bottom = (innerHeight - top + 58) + 'px';
+        } else {
+            $caption.style.bottom = '';
+        }
+        $caption.classList.add('visible');
+    }
+    function hideCaption()     { $caption.classList.remove('visible'); }
+
+    // Speak `text` aloud (and caption it). Resolves when the line ends.
+    // captionHtml may differ from the spoken text (e.g. styled spans).
+    function speak(text, captionHtml, opts) {
+        opts = opts || {};
+        currentLine = text;
+        if (captionHtml !== null) showCaption(captionHtml || text);
+        return new Promise(resolve => {
+            if (!('speechSynthesis' in window)) { setTimeout(resolve, 900 + text.length * 55); return; }
+            try { speechSynthesis.cancel(); } catch (e) {}
+            const u = new SpeechSynthesisUtterance(text);
+            if (pickedVoice) u.voice = pickedVoice;
+            u.rate = opts.rate || 0.92;
+            u.pitch = opts.pitch || 1.05;
+            let done = false;
+            ttsSpeaking = true;
+            const finish = () => { if (!done) { done = true; ttsSpeaking = false; $replay.classList.remove('talking'); resolve(); } };
+            u.onend = finish;
+            u.onerror = finish;
+            $replay.classList.add('talking');
+            speechSynthesis.speak(u);
+            // Safety: some browsers never fire onend — resolve after a generous estimate
+            setTimeout(finish, 2200 + text.length * 110);
+        });
+    }
+
+    function replayLine() {
+        if (!currentLine) return;
+        speak(currentLine, null);   // re-speak without touching the caption
+    }
+    $replay.addEventListener('click', e => { e.stopPropagation(); replayLine(); });
+
+    // ==================== SPEECH RECOGNITION ====================
+    // Fresh instance per listen; onend re-arms while the step is active.
+    // The "I said it" button is always available — mic must never block the loop.
+    let recognition = null;
+    let listenToken = 0;
+
+    function stopListening() {
+        listenToken++;
+        if (recognition) {
+            recognition.onend = null;
+            try { recognition.stop(); } catch (e) {}
+            recognition = null;
+        }
+        $micRing.classList.remove('listening');
+    }
+
+    // matcher(transcript) -> true when accepted. onMatch/onMiss called on results.
+    function startListening(matcher, onMatch, onMiss) {
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SR || micBlocked) { $voiceHint.textContent = 'No mic? Tap “I said it” below'; return; }
+        const token = ++listenToken;
+        try {
+            recognition = new SR();
+            recognition.lang = 'en-US';
+            recognition.interimResults = true;
+            recognition.maxAlternatives = 6;
+            $micRing.classList.add('listening');
+            recognition.onresult = ev => {
+                if (token !== listenToken) return;
+                if (ttsSpeaking) return;   // don't let the narrator's own voice cast the spell
+                const last = ev.results[ev.results.length - 1];
+                const heard = Array.from(last).map(a => a.transcript).join(' ');
+                if (matcher(heard)) { onMatch(); return; }
+                if (last.isFinal && onMiss) onMiss(heard);
+            };
+            recognition.onerror = e => {
+                if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+                    micBlocked = true;
+                    $micRing.classList.remove('listening');
+                    $voiceHint.textContent = 'No mic? Tap “I said it” below';
+                }
+            };
+            recognition.onend = () => {
+                if (token !== listenToken || micBlocked) return;
+                setTimeout(() => {
+                    if (token === listenToken) {
+                        try { recognition.start(); } catch (e) {}
+                    }
+                }, 250);
+            };
+            recognition.start();
+        } catch (e) { /* fall back to the button */ }
+    }
+
+    // ==================== SCENE (Three.js) ====================
+    // Real 3D per project convention (#01–#05): a stone chamber, an arched
+    // wooden door whose two leaves swing open, the mentor and player mages.
+    // Placeholder-simple geometry with clear seams for a richer asset pass.
+    // Game logic reads/writes the `scene` state object; the render loop
+    // syncs the 3D world to it every frame.
+
+    const scene = {
+        doorOpen: 0,            // 0 sealed → 1 open
+        claspAlpha: 0,          // clasp visibility
+        claspWord: '',          // the word bound into the clasp
+        claspFlip: 1,           // scaleX — flips when the mentor casts it out
+        litLetters: 0,          // letters dispelled (lit) so far
+        underlineT: 0,          // 0..1 underline drawn beneath the word
+        wandGlow: 0.6,
+        airLetter: null,        // {ch, t, dur} letter being air-drawn by the mentor
+        airWord: [],            // letters already conjured, floating mid-air
+        shake: 0,
+    };
+
+    const world = new THREE.Scene();
+    world.background = new THREE.Color(0x0b0714);
+    world.fog = new THREE.FogExp2(0x0b0714, 0.038);
+
+    const camera = new THREE.PerspectiveCamera(52, innerWidth / innerHeight, 0.1, 100);
+    const renderer = new THREE.WebGLRenderer({ canvas: sceneCanvas, antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+
+    const DOOR_W = 2.1, DOOR_H = 2.4, DOOR_Z = -2.2;   // arch radius = DOOR_W/2
+    const CLASP_Y = 1.5, CLASP_Z = DOOR_Z + 0.14;
+
+    let cameraBase = new THREE.Vector3();
+    function updateLayout() {
+        const aspect = innerWidth / innerHeight;
+        camera.aspect = aspect;
+        if (aspect < 0.75)     { camera.fov = 62; camera.position.set(0, 1.2, 4.6); }
+        else if (aspect < 1.2) { camera.fov = 52; camera.position.set(0, 1.2, 5.0); }
+        else                   { camera.fov = 46; camera.position.set(0, 1.25, 5.4); }
+        camera.lookAt(0, 0.55, DOOR_Z);   // aim low: door + clasp ride the upper screen
+        camera.updateProjectionMatrix();
+        cameraBase.copy(camera.position);
+        renderer.setSize(innerWidth, innerHeight);
+    }
+    window.addEventListener('resize', () => {
+        updateLayout();
+        if (state === 'trace') { sizeSlate(); drawSlate(); }
+        if (state === 'underline') placeUnderTrack();
+    });
+
+    function worldToScreen(v) {
+        camera.updateMatrixWorld();
+        const p = v.clone().project(camera);
+        return { x: (p.x + 1) / 2 * innerWidth, y: (1 - (p.y + 1) / 2) * innerHeight };
+    }
+
+    // ---- lights ----
+    world.add(new THREE.AmbientLight(0x40355c, 1.15));
+    const figKey = new THREE.PointLight(0xffe0b8, 1.7, 10);
+    figKey.position.set(-0.5, 2.4, 3.2); world.add(figKey);
+    const figFill = new THREE.PointLight(0xb0c0ff, 0.8, 9);
+    figFill.position.set(1.6, 1.6, 3.0); world.add(figFill);
+    const torch1 = new THREE.PointLight(0xff9a3c, 1.1, 9);
+    torch1.position.set(-1.9, 2.2, DOOR_Z + 0.6); world.add(torch1);
+    const torch2 = new THREE.PointLight(0xff9a3c, 1.1, 9);
+    torch2.position.set(1.9, 2.2, DOOR_Z + 0.6); world.add(torch2);
+    // warm light of the room beyond — swells as the door opens
+    const doorLight = new THREE.PointLight(0xffc978, 0.0, 12);
+    doorLight.position.set(0, 1.6, DOOR_Z - 0.6); world.add(doorLight);
+
+    // ---- textures (canvas-authored placeholders) ----
+    function createRadialTex() {
+        const s = 128;
+        const cv = document.createElement('canvas'); cv.width = cv.height = s;
+        const c2 = cv.getContext('2d');
+        const g = c2.createRadialGradient(s/2, s/2, 0, s/2, s/2, s/2);
+        g.addColorStop(0, 'rgba(255,255,255,1)');
+        g.addColorStop(0.35, 'rgba(235,220,255,0.7)');
+        g.addColorStop(1, 'rgba(200,170,255,0)');
+        c2.fillStyle = g; c2.fillRect(0, 0, s, s);
+        return new THREE.CanvasTexture(cv);
+    }
+    const glowTex = createRadialTex();
+
+    const glyphCache = new Map();
+    function glyphTex(text, colorHex) {
+        const key = text + '_' + colorHex;
+        if (glyphCache.has(key)) return glyphCache.get(key);
+        const size = 256;
+        const cv = document.createElement('canvas'); cv.width = cv.height = size;
+        const c2 = cv.getContext('2d');
+        const c = new THREE.Color(colorHex);
+        const rgb = `rgb(${c.r*255|0},${c.g*255|0},${c.b*255|0})`;
+        c2.textAlign = 'center'; c2.textBaseline = 'middle';
+        c2.font = `bold ${size*0.62}px "Cinzel Decorative", "Cinzel", Georgia, serif`;
+        c2.shadowColor = rgb; c2.shadowBlur = 26;
+        c2.fillStyle = rgb; c2.globalAlpha = 0.75;
+        for (let i = 0; i < 3; i++) c2.fillText(text, size/2, size/2);
+        c2.globalAlpha = 1; c2.shadowColor = '#ffffff'; c2.shadowBlur = 6;
+        c2.fillStyle = '#ffffff';
+        c2.fillText(text, size/2, size/2);
+        const tex = new THREE.CanvasTexture(cv);
+        glyphCache.set(key, tex);
+        return tex;
+    }
+
+    function roundRectPath(c2, x, y, w, h, r) {
+        c2.beginPath();
+        c2.moveTo(x+r, y);
+        c2.arcTo(x+w, y, x+w, y+h, r);
+        c2.arcTo(x+w, y+h, x, y+h, r);
+        c2.arcTo(x, y+h, x, y, r);
+        c2.arcTo(x, y, x+w, y, r);
+        c2.closePath();
+    }
+    let _plateTex = null;
+    function plateTex() {
+        if (_plateTex) return _plateTex;
+        const cv = document.createElement('canvas'); cv.width = 512; cv.height = 192;
+        const c2 = cv.getContext('2d');
+        const g = c2.createLinearGradient(0, 0, 0, 192);
+        g.addColorStop(0, 'rgba(64,40,110,0.95)'); g.addColorStop(1, 'rgba(34,20,60,0.95)');
+        c2.fillStyle = g;
+        roundRectPath(c2, 8, 8, 496, 176, 28); c2.fill();
+        c2.strokeStyle = 'rgba(190,140,255,0.9)';
+        c2.lineWidth = 5;
+        c2.shadowColor = 'rgba(170,120,255,0.9)'; c2.shadowBlur = 14;
+        roundRectPath(c2, 8, 8, 496, 176, 28); c2.stroke();
+        _plateTex = new THREE.CanvasTexture(cv);
+        return _plateTex;
+    }
+
+    function woodTexture() {
+        const cv = document.createElement('canvas'); cv.width = 128; cv.height = 256;
+        const c2 = cv.getContext('2d');
+        const g = c2.createLinearGradient(0, 0, 128, 0);
+        g.addColorStop(0, '#4a2f58'); g.addColorStop(0.5, '#5d3f6e'); g.addColorStop(1, '#432a50');
+        c2.fillStyle = g; c2.fillRect(0, 0, 128, 256);
+        c2.strokeStyle = 'rgba(0,0,0,0.3)'; c2.lineWidth = 3;
+        for (let i = 1; i < 3; i++) { c2.beginPath(); c2.moveTo(128*i/3, 0); c2.lineTo(128*i/3, 256); c2.stroke(); }
+        c2.fillStyle = 'rgba(20,12,30,0.9)';
+        for (let x = 0; x < 2; x++) for (let y = 0; y < 3; y++) {
+            c2.beginPath(); c2.arc(32 + x*64, 50 + y*80, 5, 0, 7); c2.fill();
+        }
+        const tex = new THREE.CanvasTexture(cv);
+        tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+        tex.repeat.set(1 / (DOOR_W/2), 1 / DOOR_H);   // extrude UVs are in shape units
+        return tex;
+    }
+
+    // ---- chamber: floor + wall with an arched doorway ----
+    const floor = new THREE.Mesh(
+        new THREE.PlaneGeometry(40, 24),
+        new THREE.MeshStandardMaterial({ color: 0x1c1430, roughness: 0.96 })
+    );
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set(0, 0, 2);
+    world.add(floor);
+
+    (function buildWall() {
+        const shape = new THREE.Shape();
+        shape.moveTo(-14, 0); shape.lineTo(14, 0); shape.lineTo(14, 10); shape.lineTo(-14, 10);
+        shape.closePath();
+        const r = DOOR_W / 2, hy = DOOR_H - r;
+        const hole = new THREE.Path();
+        hole.moveTo(-r, 0);
+        hole.lineTo(r, 0);
+        hole.lineTo(r, hy);
+        hole.absarc(0, hy, r, 0, Math.PI, false);
+        hole.lineTo(-r, 0);
+        shape.holes.push(hole);
+        const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.35, bevelEnabled: false });
+        const wall = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x2c2144, roughness: 0.95 }));
+        wall.position.set(0, 0, DOOR_Z - 0.35);   // front face lands exactly at DOOR_Z
+        world.add(wall);
+        // arch trim stones
+        const trim = new THREE.Mesh(
+            new THREE.TorusGeometry(r + 0.09, 0.09, 8, 24, Math.PI),
+            new THREE.MeshStandardMaterial({ color: 0x3a2c52, roughness: 0.9 })
+        );
+        trim.position.set(0, hy, DOOR_Z + 0.02);
+        world.add(trim);
+    })();
+
+    // warm room beyond the arch (only shown once the door opens)
+    const roomGlow = new THREE.Mesh(
+        new THREE.PlaneGeometry(DOOR_W * 1.7, DOOR_H * 1.4),
+        new THREE.MeshBasicMaterial({ color: 0xffd98f })
+    );
+    roomGlow.position.set(0, DOOR_H * 0.55, DOOR_Z - 1.3);
+    roomGlow.visible = false;
+    world.add(roomGlow);
+
+    // ---- the door: two half-arch leaves hinged at the jambs ----
+    const doorMat = new THREE.MeshStandardMaterial({
+        map: woodTexture(), roughness: 0.85, metalness: 0.05, side: THREE.DoubleSide,
+        emissive: 0x3a2648, emissiveIntensity: 0.5,   // keeps the wood readable in the dark chamber
+    });
+    function makeLeafMesh() {
+        const r = DOOR_W / 2, hy = DOOR_H - r;
+        const s = new THREE.Shape();
+        s.moveTo(0, 0);
+        s.lineTo(r, 0);
+        s.lineTo(r, hy);
+        s.absarc(0, hy, r, 0, Math.PI / 2, false);   // quarter arch up to the crown
+        s.lineTo(0, 0);
+        const geo = new THREE.ExtrudeGeometry(s, { depth: 0.08, bevelEnabled: false });
+        geo.translate(-r, 0, 0);                      // hinge (group origin) at the outer edge
+        return new THREE.Mesh(geo, doorMat);
+    }
+    const rightLeaf = new THREE.Group();
+    rightLeaf.position.set(DOOR_W / 2, 0, DOOR_Z);
+    rightLeaf.add(makeLeafMesh());
+    world.add(rightLeaf);
+    const leftLeaf = new THREE.Group();
+    leftLeaf.position.set(-DOOR_W / 2, 0, DOOR_Z);
+    const leftMesh = makeLeafMesh();
+    leftMesh.scale.x = -1;                            // mirrored twin
+    leftLeaf.add(leftMesh);
+    world.add(leftLeaf);
+
+    // ---- the clasp: plate + word glyphs + underline, rebuilt per word ----
+    const claspGroup = new THREE.Group();
+    claspGroup.position.set(0, CLASP_Y, CLASP_Z);
+    world.add(claspGroup);
+    let claspBuiltWord = '';
+    let claspSprites = [];
+    let underlineBar = null, plateMesh = null;
+
+    function buildClasp(wordStr) {
+        while (claspGroup.children.length) claspGroup.remove(claspGroup.children[0]);
+        claspSprites = []; underlineBar = null; plateMesh = null;
+        claspBuiltWord = wordStr;
+        if (!wordStr) return;
+        const n = wordStr.length;
+        const size = Math.min(0.42, (DOOR_W * 0.86) / n);
+        const gap = size * 0.92;
+        const total = gap * (n - 1);
+        plateMesh = new THREE.Mesh(
+            new THREE.PlaneGeometry(total + size * 1.7, size * 2.0),
+            new THREE.MeshBasicMaterial({ map: plateTex(), transparent: true, opacity: 0.92, depthWrite: false })
+        );
+        plateMesh.position.z = -0.02;
+        plateMesh.renderOrder = 1;
+        claspGroup.add(plateMesh);
+        wordStr.split('').forEach((ch, i) => {
+            const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+                map: glyphTex(ch, 0xe4d2ff), transparent: true, depthTest: false,
+            }));
+            sp.scale.set(size * 1.4, size * 1.4, 1);
+            sp.position.x = -total / 2 + i * gap;
+            sp.renderOrder = 2;
+            claspSprites.push(sp);
+            claspGroup.add(sp);
+        });
+        underlineBar = new THREE.Mesh(
+            new THREE.PlaneGeometry(1, 0.05),
+            new THREE.MeshBasicMaterial({ color: 0xffd98f, transparent: true, opacity: 0.95, depthWrite: false })
+        );
+        underlineBar.position.set(0, -size * 0.85, 0.01);
+        underlineBar.userData.width = total + size;
+        underlineBar.scale.x = 0.0001;
+        underlineBar.renderOrder = 2;
+        claspGroup.add(underlineBar);
+    }
+
+    // once the display font finishes loading, re-render every glyph texture
+    if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(() => {
+            glyphCache.forEach(t => t.dispose());
+            glyphCache.clear();
+            claspBuiltWord = '__rebuild__';           // render loop rebuilds next frame
+            airWordSprites.forEach(s => world.remove(s));
+            airWordSprites = [];
+        });
+    }
+
+    // Screen-space geometry of the clasp word — places the DOM underline zone
+    function claspScreenLayout() {
+        const n = claspSprites.length;
+        const wp = new THREE.Vector3();
+        const letters = claspSprites.map((sp, i) => {
+            sp.getWorldPosition(wp);
+            const s = worldToScreen(wp);
+            return { ch: claspBuiltWord[i], x: s.x, y: s.y };
+        });
+        claspSprites[0].getWorldPosition(wp);
+        const base = worldToScreen(wp);
+        const up = worldToScreen(wp.clone().add(new THREE.Vector3(0, claspSprites[0].scale.y * 0.7, 0)));
+        const fontSize = Math.abs(base.y - up.y);
+        return {
+            letters, fontSize,
+            left: letters[0].x - fontSize * 0.7,
+            right: letters[n-1].x + fontSize * 0.7,
+            y: letters[0].y,
+        };
+    }
+    function placeUnderTrack() {
+        if (!claspSprites.length) return;
+        const lay = claspScreenLayout();
+        const pad = 16;
+        $underTrack.style.left = (lay.left - pad) + 'px';
+        $underTrack.style.top = (lay.y - lay.fontSize * 0.85) + 'px';
+        $underTrack.style.width = (lay.right - lay.left + pad * 2) + 'px';
+        $underTrack.style.height = (lay.fontSize * 1.9) + 'px';
+    }
+
+    // ---- the mentor's air-writing (demo): thick glowing strokes on a
+    //      canvas-textured sprite floating before the door ----
+    const airCanvas = document.createElement('canvas');
+    airCanvas.width = airCanvas.height = 256;
+    const airTex = new THREE.CanvasTexture(airCanvas);
+    const airSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: airTex, transparent: true, depthTest: false, blending: THREE.AdditiveBlending,
+    }));
+    airSprite.scale.set(0.95, 0.95, 1);
+    airSprite.position.set(0, CLASP_Y + 0.08, DOOR_Z + 0.5);   // drawn right where the clasp will form
+    airSprite.visible = false;
+    world.add(airSprite);
+    let airWordSprites = [];
+
+    function drawAir() {
+        const A = scene.airLetter;
+        airSprite.visible = !!A;
+        if (!A || !LETTER_DATA[A.ch]) return;
+        const c2 = airCanvas.getContext('2d');
+        const S = 256;
+        c2.clearRect(0, 0, S, S);
+        const data = LETTER_DATA[A.ch];
+        const allPts = [];
+        data.curves.forEach(c => c.forEach(p => allPts.push(p)));
+        const upto = Math.max(2, Math.floor(allPts.length * Math.min(A.t, 1)));
+        c2.strokeStyle = '#e9d9ff';
+        c2.shadowColor = 'rgba(190,140,255,1)'; c2.shadowBlur = 14;
+        c2.lineWidth = 13; c2.lineCap = 'round'; c2.lineJoin = 'round';
+        let drawn = 0;
+        for (const curve of data.curves) {
+            if (drawn >= upto) break;
+            c2.beginPath();
+            let started = false;
+            for (const p of curve) {
+                if (drawn >= upto) break;
+                if (!started) { c2.moveTo(p.x*S, p.y*S); started = true; }
+                else c2.lineTo(p.x*S, p.y*S);
+                drawn++;
+            }
+            c2.stroke();
+        }
+        const tip = allPts[Math.min(upto, allPts.length - 1)];
+        const g = c2.createRadialGradient(tip.x*S, tip.y*S, 0, tip.x*S, tip.y*S, 24);
+        g.addColorStop(0, 'rgba(255,255,255,0.95)');
+        g.addColorStop(1, 'rgba(210,170,255,0)');
+        c2.fillStyle = g;
+        c2.beginPath(); c2.arc(tip.x*S, tip.y*S, 24, 0, 7); c2.fill();
+        airTex.needsUpdate = true;
+        // stray sparks off the pen tip
+        if (Math.random() < 0.25) {
+            const wp = new THREE.Vector3(
+                (tip.x - 0.5) * airSprite.scale.x,
+                (0.5 - tip.y) * airSprite.scale.y, 0
+            ).add(airSprite.position);
+            createBurst(wp, 0xd9c6ff, 2, 0.5);
+        }
+    }
+
+    function syncAirWord() {
+        if (airWordSprites.length === scene.airWord.length) return;
+        airWordSprites.forEach(s => world.remove(s));
+        const gap = 0.36, total = gap * (scene.airWord.length - 1);
+        airWordSprites = scene.airWord.map((ch, i) => {
+            const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+                map: glyphTex(ch, 0xe4d2ff), transparent: true, depthTest: false,
+                blending: THREE.AdditiveBlending,
+            }));
+            sp.scale.set(0.42, 0.42, 1);
+            sp.position.set(-total/2 + i * gap, CLASP_Y + 0.75, DOOR_Z + 0.55);
+            world.add(sp);
+            return sp;
+        });
+    }
+
+    // ---- mage figures (mentor with wand; player slightly behind) ----
+    function buildMage(opts) {
+        const g = new THREE.Group();
+        const robeMat = new THREE.MeshStandardMaterial({
+            color: opts.robe, roughness: 0.8, metalness: 0.05,
+            emissive: opts.robe, emissiveIntensity: 0.25,
+        });
+        const robe = new THREE.Mesh(new THREE.ConeGeometry(opts.scale*0.32, opts.scale*1.0, 14), robeMat);
+        robe.position.y = opts.scale*0.5;
+        g.add(robe);
+        const head = new THREE.Mesh(
+            new THREE.SphereGeometry(opts.scale*0.15, 16, 14),
+            new THREE.MeshStandardMaterial({ color: 0xf2d6b0, roughness: 0.6, emissive: 0x3a2a1e, emissiveIntensity: 0.3 })
+        );
+        head.position.y = opts.scale*1.08;
+        g.add(head);
+        const hat = new THREE.Mesh(new THREE.ConeGeometry(opts.scale*0.22, opts.scale*0.5, 14), robeMat);
+        hat.position.y = opts.scale*1.4;
+        hat.rotation.z = opts.hatTilt || 0;
+        g.add(hat);
+        const brim = new THREE.Mesh(new THREE.TorusGeometry(opts.scale*0.2, opts.scale*0.04, 8, 20), robeMat);
+        brim.rotation.x = Math.PI/2;
+        brim.position.y = opts.scale*1.18;
+        g.add(brim);
+        let wandLight = null;
+        if (opts.wand) {
+            const wand = new THREE.Mesh(
+                new THREE.CylinderGeometry(opts.scale*0.015, opts.scale*0.022, opts.scale*0.7, 6),
+                new THREE.MeshStandardMaterial({ color: 0x3a2a18, roughness: 0.8 })
+            );
+            wand.position.set(opts.scale*0.3, opts.scale*0.95, -opts.scale*0.1);
+            wand.rotation.z = -0.5;
+            g.add(wand);
+            const tip = new THREE.Mesh(
+                new THREE.SphereGeometry(opts.scale*0.05, 10, 10),
+                new THREE.MeshBasicMaterial({ color: 0xd9c6ff })
+            );
+            tip.position.set(opts.scale*0.46, opts.scale*1.24, -opts.scale*0.1);
+            g.add(tip);
+            const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+                map: glowTex, color: 0xd9c6ff, transparent: true, opacity: 0.8,
+                blending: THREE.AdditiveBlending, depthWrite: false,
+            }));
+            halo.scale.set(opts.scale*0.5, opts.scale*0.5, 1);
+            halo.position.copy(tip.position);
+            g.add(halo);
+            wandLight = new THREE.PointLight(0xc9a5ff, 0.8, 4);
+            wandLight.position.copy(tip.position);
+            g.add(wandLight);
+        }
+        g.position.copy(opts.pos);
+        world.add(g);
+        return { group: g, wandLight, baseY: opts.pos.y };
+    }
+    // small figures flanking the doorway so they never block the clasp
+    const mentor = buildMage({ robe: 0x8259c8, scale: 0.62, wand: true,  hatTilt: -0.08, pos: new THREE.Vector3(-0.95, 0, -0.5) });
+    const player = buildMage({ robe: 0x4f82c4, scale: 0.5,  wand: false, hatTilt: 0.06,  pos: new THREE.Vector3(0.85, 0, 0.3) });
+
+    // torch flame sprites
+    [-1.9, 1.9].forEach(x => {
+        const f = new THREE.Sprite(new THREE.SpriteMaterial({
+            map: glowTex, color: 0xffb46a, transparent: true, opacity: 0.85,
+            blending: THREE.AdditiveBlending, depthWrite: false,
+        }));
+        f.position.set(x, 2.2, DOOR_Z + 0.5);
+        f.scale.set(0.5, 0.7, 1);
+        world.add(f);
+    });
+
+    // drifting dust motes
+    const motes = (function() {
+        const count = 90;
+        const pos = new Float32Array(count * 3);
+        const meta = [];
+        for (let i = 0; i < count; i++) {
+            pos[i*3]   = (Math.random() - 0.5) * 10;
+            pos[i*3+1] = Math.random() * 4;
+            pos[i*3+2] = -2 + Math.random() * 6;
+            meta.push({ vy: 0.05 + Math.random()*0.12, wob: Math.random()*6.28 });
+        }
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        const pts = new THREE.Points(geo, new THREE.PointsMaterial({
+            color: 0xb9a6e6, size: 0.05, map: glowTex, transparent: true, opacity: 0.5,
+            blending: THREE.AdditiveBlending, depthWrite: false,
+        }));
+        world.add(pts);
+        return { geo, meta };
+    })();
+
+    // ---- particles ----
+    let bursts = [];
+    function createBurst(pos, colorHex, count, speed) {
+        count = count || 22; speed = speed || 1;
+        const geo = new THREE.BufferGeometry();
+        const positions = new Float32Array(count * 3);
+        const vels = [];
+        for (let i = 0; i < count; i++) {
+            positions[i*3] = pos.x; positions[i*3+1] = pos.y; positions[i*3+2] = pos.z;
+            const th = Math.random() * Math.PI * 2;
+            const ph = Math.acos(2*Math.random() - 1);
+            const sp = (0.5 + Math.random() * 1.2) * speed;
+            vels.push(new THREE.Vector3(
+                Math.sin(ph)*Math.cos(th)*sp,
+                Math.abs(Math.sin(ph)*Math.sin(th))*sp*0.8 + 0.4,
+                Math.cos(ph)*sp*0.4
+            ));
+        }
+        geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        const mesh = new THREE.Points(geo, new THREE.PointsMaterial({
+            color: colorHex, size: 0.07, map: glowTex, transparent: true, opacity: 1,
+            blending: THREE.AdditiveBlending, depthWrite: false,
+        }));
+        world.add(mesh);
+        bursts.push({ mesh, vels, life: 1.0 });
+    }
+    function updateBursts(dt) {
+        bursts = bursts.filter(b => {
+            b.life -= dt * 1.7;
+            b.mesh.material.opacity = Math.max(0, b.life);
+            const p = b.mesh.geometry.attributes.position.array;
+            for (let i = 0; i < b.vels.length; i++) {
+                p[i*3]   += b.vels[i].x * dt;
+                p[i*3+1] += b.vels[i].y * dt;
+                p[i*3+2] += b.vels[i].z * dt;
+                b.vels[i].multiplyScalar(0.95);
+                b.vels[i].y -= dt * 1.4;
+            }
+            b.mesh.geometry.attributes.position.needsUpdate = true;
+            if (b.life <= 0) { world.remove(b.mesh); return false; }
+            return true;
+        });
+    }
+
+    let smokes = [];
+    function smokeAtLetter(i) {
+        const src = claspSprites[i];
+        if (!src) return;
+        const wp = new THREE.Vector3();
+        src.getWorldPosition(wp);
+        // a grey ghost of the letter rides the smoke
+        const gs = new THREE.Sprite(new THREE.SpriteMaterial({
+            map: glyphTex(claspBuiltWord[i] || '?', 0x9a8fa0), transparent: true, opacity: 0.9, depthTest: false,
+        }));
+        gs.position.copy(wp);
+        gs.scale.set(0.4, 0.4, 1);
+        world.add(gs);
+        smokes.push({ sp: gs, life: 1.4, vx: (Math.random()-0.5)*0.4, vy: 0.55, grow: 1.1 });
+        for (let k = 0; k < 4; k++) {
+            const ps = new THREE.Sprite(new THREE.SpriteMaterial({
+                map: glowTex, color: 0x8a7fa0, transparent: true, opacity: 0.5,
+                depthTest: false, depthWrite: false,
+            }));
+            ps.position.set(wp.x + (Math.random()-0.5)*0.2, wp.y + (Math.random()-0.5)*0.2, wp.z);
+            ps.scale.set(0.3, 0.3, 1);
+            world.add(ps);
+            smokes.push({ sp: ps, life: 1.0 + Math.random()*0.4, vx: (Math.random()-0.5)*0.5, vy: 0.4 + Math.random()*0.3, grow: 1.5 });
+        }
+    }
+    function updateSmokes(dt) {
+        smokes = smokes.filter(s => {
+            s.life -= dt * 0.7;
+            s.sp.position.x += s.vx * dt;
+            s.sp.position.y += s.vy * dt;
+            const g = 1 + s.grow * dt;
+            s.sp.scale.x *= g; s.sp.scale.y *= g;
+            s.sp.material.opacity = Math.max(0, Math.min(0.9, s.life * 0.8));
+            if (s.life <= 0) { world.remove(s.sp); return false; }
+            return true;
+        });
+    }
+
+    function burstAtClasp(col) {
+        createBurst(new THREE.Vector3(0, CLASP_Y, CLASP_Z + 0.1), col, 30, 1.6);
+    }
+    function burstAtLetter(i, col) {
+        const sp = claspSprites[i];
+        if (!sp) return;
+        const wp = new THREE.Vector3();
+        sp.getWorldPosition(wp);
+        wp.z += 0.08;
+        createBurst(wp, col, 16, 1.1);
+    }
+    function clearEffects() {
+        bursts.forEach(b => world.remove(b.mesh)); bursts = [];
+        smokes.forEach(s => world.remove(s.sp)); smokes = [];
+    }
+
+    // ---- render loop: sync the 3D world to the game state ----
+    const clock = new THREE.Clock();
+    function update() {
+        requestAnimationFrame(update);
+        const dt = Math.min(clock.getDelta(), 0.1);
+        const T = clock.elapsedTime;
+
+        // clasp
+        if (scene.claspWord !== claspBuiltWord) buildClasp(scene.claspWord);
+        claspGroup.visible = !!claspBuiltWord && scene.claspAlpha > 0.01;
+        if (claspGroup.visible) {
+            claspGroup.scale.x = scene.claspFlip;
+            claspSprites.forEach((sp, i) => {
+                const lit = i < scene.litLetters;
+                if (sp.userData.lit !== lit) {
+                    sp.userData.lit = lit;
+                    sp.material.map = glyphTex(claspBuiltWord[i], lit ? 0x9dffc0 : 0xe4d2ff);
+                    sp.material.needsUpdate = true;
+                }
+                sp.material.opacity = lit ? 1 : 0.8 + Math.sin(T*2.6 + i)*0.2;
+            });
+            if (underlineBar) {
+                const w = underlineBar.userData.width;
+                underlineBar.scale.x = Math.max(scene.underlineT * w, 0.0001);
+                underlineBar.position.x = -w/2 + w * scene.underlineT / 2;
+            }
+        }
+
+        // door leaves swing; the room beyond glows
+        const ang = scene.doorOpen * 1.9;
+        rightLeaf.rotation.y = -ang;
+        leftLeaf.rotation.y = ang;
+        roomGlow.visible = scene.doorOpen > 0.01;
+        doorLight.intensity = 0.25 + scene.doorOpen * 3.4;
+
+        // torches breathe
+        torch1.intensity = 1.6 + Math.sin(T*7)*0.2 + Math.sin(T*13)*0.09;
+        torch2.intensity = 1.6 + Math.cos(T*6)*0.2 + Math.sin(T*11)*0.09;
+
+        // mages idle-bob; the mentor's wand glows with the story beat
+        mentor.group.position.y = mentor.baseY + Math.sin(T*1.4)*0.02;
+        player.group.position.y = player.baseY + Math.sin(T*1.7 + 2)*0.02;
+        if (mentor.wandLight) mentor.wandLight.intensity = scene.wandGlow + Math.sin(T*3)*0.2;
+
+        // air-writing
+        if (scene.airLetter) scene.airLetter.t += dt / scene.airLetter.dur;
+        drawAir();
+        syncAirWord();
+
+        // motes drift upward
+        const mp = motes.geo.attributes.position.array;
+        for (let i = 0; i < motes.meta.length; i++) {
+            mp[i*3+1] += motes.meta[i].vy * dt;
+            mp[i*3]   += Math.sin(T*0.6 + motes.meta[i].wob) * 0.05 * dt;
+            if (mp[i*3+1] > 4.2) mp[i*3+1] = 0;
+        }
+        motes.geo.attributes.position.needsUpdate = true;
+
+        updateBursts(dt);
+        updateSmokes(dt);
+
+        // camera shake
+        if (scene.shake > 0.05) {
+            camera.position.set(
+                cameraBase.x + (Math.random()-0.5) * scene.shake * 0.02,
+                cameraBase.y + (Math.random()-0.5) * scene.shake * 0.02,
+                cameraBase.z
+            );
+            scene.shake *= Math.pow(0.01, dt);
+        } else {
+            camera.position.copy(cameraBase);
+        }
+
+        renderer.render(world, camera);
+    }
+
+    // ==================== MENTOR DEMO (instruction sequence) ====================
+    // The mentor conjures CLASP letter-by-letter — air-drawing each shape while
+    // its NAME is spoken — then flips the word out to seal the door.
+    async function runDemo() {
+        const my = session;
+        state = 'demo';
+        scene.claspWord = '';
+        scene.claspAlpha = 0;
+        scene.airWord = [];
+        const w = ROUNDS[0].word;
+
+        await speak(
+            'Watch closely, young mage. I will cast a binding spell — by spelling.',
+            '<span class="mentor">Mentor:</span> “Watch closely, young mage. I will cast a binding spell — by <em>spelling</em>.”'
+        );
+        if (my !== session) return;
+        await sleep(300);
+
+        // conjure each letter: air-draw the shape while speaking its name
+        for (const ch of w) {
+            if (my !== session) return;
+            scene.airLetter = { ch, t: 0, dur: 1.3 };
+            scene.wandGlow = 1.4;
+            const said = speak(ch, null);
+            await sleep(1400);
+            await said;
+            if (my !== session) return;
+            scene.airLetter = null;
+            scene.airWord.push(ch);
+            playLetterLit();
+            await sleep(250);
+        }
+
+        if (my !== session) return;
+        scene.wandGlow = 0.6;
+        await speak(w.toLowerCase() + '!', `<span class="mentor">Mentor:</span> “${w}!”`, { rate: 0.8 });
+        if (my !== session) return;
+
+        // the word flips and flies to the door as a clasp
+        scene.airWord = [];
+        scene.claspWord = w;
+        scene.claspAlpha = 1;
+        // flip animation: scaleX 1 → -1 → 1 (the spell is "sent into the world")
+        for (let t = 0; t <= 1; t += 0.08) {
+            scene.claspFlip = Math.cos(t * Math.PI);
+            if (Math.abs(scene.claspFlip) < 0.08) scene.claspFlip = 0.08;
+            await sleep(30);
+            if (my !== session) return;
+        }
+        scene.claspFlip = 1;
+        playSealThunk();
+        scene.shake = 7;
+        burstAtClasp(0xc9a5ff);
+
+        await sleep(500);
+        if (my !== session) return;
+        await speak(
+            'There. The word is the lock, and the door is sealed. But a spell cast by one mage can be dispelled by another. ' +
+            'Trace each letter and say its name. Then underline the word, and read it aloud. The clasp will let go.',
+            '<span class="mentor">Mentor:</span> “The word is the lock. Trace each letter and say its name, underline the word, and read it aloud — and the clasp will let go.”'
+        );
+        if (my !== session) return;
+        await sleep(400);
+        startRound(0);
+    }
+
+    // ==================== ROUND FLOW ====================
+    function updatePips() {
+        Array.from($pips.children).forEach((pip, i) => {
+            pip.className = 'pip' + (i < roundIx ? ' done' : i === roundIx ? ' now' : '');
+        });
+    }
+
+    async function startRound(ix) {
+        const my = session;
+        roundIx = ix;
+        letterIx = 0;
+        litCount = 0;
+        scene.litLetters = 0;
+        scene.underlineT = 0;
+        scene.doorOpen = 0;
+        scene.claspWord = word();
+        scene.claspAlpha = 1;
+        scene.claspFlip = 1;
+        updatePips();
+
+        if (ix > 0) {
+            // later rounds: a new clasp snaps onto the door
+            playSealThunk();
+            scene.shake = 6;
+            burstAtClasp(0xc9a5ff);
+            const lines = [
+                null,
+                'Another door, another clasp. Trace the letters, say their names, underline, and read.',
+                'The last seal. This one is yours alone, young mage.',
+            ];
+            await speak(lines[ix], `<span class="mentor">Mentor:</span> “${lines[ix]}”`);
+            if (my !== session) return;
+        }
+        nextTraceStep();
+    }
+
+    // ==================== RUNE-SLATE (trace a letter) ====================
+    let slateSize = 300;
+    let drawing = false;
+    let stroke = [];        // current finger stroke (normalized points)
+    let strokesDrawn = 0;
+    let nextIdx = 0;        // next checkpoint to hit (ordered across pen lifts)
+    let guideAlpha = 1;     // how visible the letter outline is
+    let allTraces = [];     // finished strokes kept on the slate until the letter is done
+
+    function currentLetter() { return word()[letterIx]; }
+
+    function sizeSlate() {
+        const rect = slateCanvas.getBoundingClientRect();
+        const dpr = Math.min(devicePixelRatio || 1, 2);
+        slateSize = Math.round(rect.width * dpr);
+        slateCanvas.width = slateSize;
+        slateCanvas.height = slateSize;
+    }
+
+    async function nextTraceStep() {
+        const my = session;
+        state = 'trace';
+        stroke = []; allTraces = [];
+        nextIdx = 0; strokesDrawn = 0; drawing = false;
+        // support level decides how much of the outline shows
+        guideAlpha = support() === 2 ? 1 : support() === 1 ? 0.35 : 0;
+        const ch = currentLetter();
+        $slateHead.innerHTML = `Trace the letter <b>${ch}</b>`;
+        $slateHint.textContent = guideAlpha > 0 ? 'Follow the glowing shape' : 'Draw it from memory';
+        $slatePanel.classList.add('visible');
+        requestAnimationFrame(() => { sizeSlate(); drawSlate(); });
+
+        // narration scales down as support fades
+        if (letterIx === 0) {
+            const intro = support() === 2
+                ? `Let us dispel it together. Trace the letter ${ch} on the rune slate, and when it is drawn, say its name.`
+                : support() === 1
+                ? `Trace each letter and say its name. Start with ${ch}.`
+                : `Dispel the clasp. It starts with ${ch}.`;
+            await speak(intro, intro);
+        } else if (support() === 2) {
+            await speak(`Now trace the letter ${ch}.`, `Now trace the letter ${ch}.`);
+        } else if (support() === 1) {
+            await speak(ch, null);
+        }
+        if (my !== session) return;
+    }
+
+    function slatePoint(e) {
+        const rect = slateCanvas.getBoundingClientRect();
+        return { x: (e.clientX - rect.left) / rect.width, y: (e.clientY - rect.top) / rect.height };
+    }
+
+    function checkpointCheck() {
+        const p = stroke[stroke.length - 1];
+        const cps = LETTER_DATA[currentLetter()].checkpoints;
+        let advanced = false;
+        while (nextIdx < cps.length) {
+            const cp = cps[nextIdx];
+            const dx = p.x - cp[0], dy = p.y - cp[1];
+            if (Math.sqrt(dx*dx + dy*dy) < TRACE_TOL) { nextIdx++; advanced = true; }
+            else break;
+        }
+        return advanced;
+    }
+
+    // Accuracy: average distance of stroke samples to the ideal curves → 0..1
+    function computeTraceAccuracy() {
+        const pts = allTraces.flat();
+        if (pts.length < 2) return 0.5;
+        const curves = LETTER_DATA[currentLetter()].curves;
+        let sum = 0;
+        for (const p of pts) {
+            let best = Infinity;
+            for (const curve of curves) {
+                for (const c of curve) {
+                    const dx = p.x - c.x, dy = p.y - c.y;
+                    const d = dx*dx + dy*dy;
+                    if (d < best) best = d;
+                }
+            }
+            sum += Math.sqrt(best);
+        }
+        return Math.max(0, Math.min(1, 1 - (sum / pts.length) / ACC_FLOOR));
+    }
+
+    function drawSlate(doneColor) {
+        const c2 = slateCanvas.getContext('2d');
+        const S = slateSize;
+        c2.clearRect(0, 0, S, S);
+        const data = LETTER_DATA[currentLetter()];
+
+        // glowing letter outline (supported / revealed-after-failure mode)
+        if (guideAlpha > 0.02) {
+            c2.lineWidth = S * 0.06;
+            c2.lineCap = 'round'; c2.lineJoin = 'round';
+            c2.strokeStyle = `rgba(170,120,255,${0.35 * guideAlpha})`;
+            c2.setLineDash([S*0.012, S*0.032]);
+            for (const curve of data.curves) {
+                c2.beginPath();
+                curve.forEach((p, i) => i ? c2.lineTo(p.x*S, p.y*S) : c2.moveTo(p.x*S, p.y*S));
+                c2.stroke();
+            }
+            c2.setLineDash([]);
+        }
+
+        // checkpoints: passed lit gold, next highlighted, rest faint
+        const cps = data.checkpoints;
+        cps.forEach((p, i) => {
+            const passed = i < nextIdx, isNext = i === nextIdx;
+            c2.beginPath();
+            c2.arc(p[0]*S, p[1]*S, S*(isNext ? 0.036 : 0.02), 0, 7);
+            c2.fillStyle = passed ? 'rgba(255,217,143,0.95)'
+                         : isNext ? 'rgba(201,165,255,0.9)'
+                         : `rgba(170,120,255,${0.3 * Math.max(guideAlpha, 0.0)})`;
+            c2.fill();
+            if (i === 0 && nextIdx === 0) {   // "start here" ring
+                c2.beginPath();
+                c2.arc(p[0]*S, p[1]*S, S*0.062, 0, 7);
+                c2.strokeStyle = 'rgba(201,165,255,0.7)';
+                c2.lineWidth = S*0.008;
+                c2.stroke();
+            }
+        });
+
+        // the learner's strokes
+        const paint = (pts) => {
+            if (pts.length < 2) return;
+            c2.beginPath();
+            pts.forEach((p, i) => i ? c2.lineTo(p.x*S, p.y*S) : c2.moveTo(p.x*S, p.y*S));
+            c2.stroke();
+        };
+        c2.lineWidth = S * 0.05;
+        c2.lineCap = 'round'; c2.lineJoin = 'round';
+        if (doneColor) c2.strokeStyle = doneColor;
+        else {
+            const grad = c2.createLinearGradient(0, 0, S, S);
+            grad.addColorStop(0, '#ffe9c4'); grad.addColorStop(1, '#c9a5ff');
+            c2.strokeStyle = grad;
+        }
+        c2.shadowColor = 'rgba(201,165,255,0.9)'; c2.shadowBlur = S*0.05;
+        allTraces.forEach(paint);
+        paint(stroke);
+        c2.shadowBlur = 0;
+    }
+
+    function onSlateDown(e) {
+        if (state !== 'trace') return;
+        e.preventDefault(); e.stopPropagation();
+        drawing = true;
+        try { slateCanvas.setPointerCapture(e.pointerId); } catch (err) {}
+        stroke = [slatePoint(e)];
+        stroke.advanced = checkpointCheck();
+        drawSlate();
+    }
+    function onSlateMove(e) {
+        if (!drawing || state !== 'trace') return;
+        e.preventDefault(); e.stopPropagation();
+        stroke.push(slatePoint(e));
+        if (checkpointCheck()) stroke.advanced = true;
+        drawSlate();
+        const cps = LETTER_DATA[currentLetter()].checkpoints;
+        if (nextIdx >= cps.length) { drawing = false; traceSuccess(); }
+    }
+    function onSlateUp(e) {
+        if (state !== 'trace' || !drawing) return;
+        e.preventDefault(); e.stopPropagation();
+        drawing = false;
+        const cps = LETTER_DATA[currentLetter()].checkpoints;
+        if (nextIdx >= cps.length) { traceSuccess(); return; }
+        // pen lift mid-letter is fine (A, E, K, T need it) — keep the progress.
+        // A lift that advanced nothing means the shape was lost: reveal the outline.
+        if (stroke.advanced) {
+            allTraces.push(stroke);
+            stroke = [];
+            strokesDrawn++;
+            if (strokesDrawn > 6) traceFail();   // wandering — gently re-offer
+            drawSlate();
+        } else {
+            traceFail();
+        }
+    }
+
+    async function traceFail() {
+        const my = session;
+        playSoftFail();
+        // No red X — the mentor reveals the glowing shape to trace over.
+        guideAlpha = 1;
+        stroke = []; allTraces = [];
+        nextIdx = 0; strokesDrawn = 0;
+        $slateHint.textContent = 'Trace over the glowing shape';
+        $slatePanel.animate(
+            [{ transform: 'translate(-50%,0) translateX(-8px)' },
+             { transform: 'translate(-50%,0) translateX(8px)' },
+             { transform: 'translate(-50%,0)' }],
+            { duration: 260, easing: 'ease-out' });
+        drawSlate();
+        await speak(`Here — the shape of ${currentLetter()} glows for you. Trace over it.`,
+                    `The shape of ${currentLetter()} glows for you — trace over it.`);
+        if (my !== session) return;
+    }
+
+    function traceSuccess() {
+        if (state !== 'trace') return;
+        allTraces.push(stroke); stroke = [];
+        const acc = computeTraceAccuracy();
+        playTraceDone();
+        state = 'trace-done';
+        const pct = Math.max(5, Math.round(acc * 100));
+        $slateHint.innerHTML = `<b style="color:#fff;font-size:1.4em">${pct}%</b> — well drawn`;
+        drawSlate('#b8ffcf');
+        setTimeout(() => {
+            if (state !== 'trace-done') return;
+            $slatePanel.classList.remove('visible');
+            openSayLetter();
+        }, 750);
+    }
+
+    slateCanvas.addEventListener('pointerdown', onSlateDown, { passive: false });
+    slateCanvas.addEventListener('pointermove', onSlateMove, { passive: false });
+    slateCanvas.addEventListener('pointerup', onSlateUp, { passive: false });
+    slateCanvas.addEventListener('pointercancel', onSlateUp, { passive: false });
+
+    // ==================== SAY THE LETTER'S NAME ====================
+    async function openSayLetter() {
+        const my = session;
+        state = 'say';
+        const ch = currentLetter();
+        $voiceHead.textContent = 'Say its name';
+        $voiceGlyph.textContent = ch;
+        $voiceGlyph.className = 'letter';
+        $voiceHint.textContent = 'Speak the letter’s name';
+        $voicePanel.classList.add('visible');
+
+        if (support() === 2 && letterIx === 0) {
+            await speak(`Well traced! Now say its name out loud.`, 'Now say its name out loud.');
+        } else if (support() === 2) {
+            await speak('Say its name.', 'Say its name.');
+        }
+        if (my !== session || state !== 'say') return;
+
+        startListening(
+            heard => matchesLetterName(heard, ch),
+            () => letterSaid(),
+            () => sayMiss(`Hmm — say the name of the letter ${ch}.`)
+        );
+    }
+
+    function sayMiss(hint) {
+        // never punitive: a wiggle and a gentle re-offer, mic keeps listening
+        playSoftFail();
+        $voiceGlyph.classList.add('wrong');
+        setTimeout(() => $voiceGlyph.classList.remove('wrong'), 600);
+        speak(hint, hint);
+    }
+
+    function letterSaid() {
+        if (state !== 'say') return;
+        state = 'letter-lit';
+        stopListening();
+        $voicePanel.classList.remove('visible');
+        // the traced+named letter on the clasp loses its binding light
+        litCount++;
+        scene.litLetters = litCount;
+        playLetterLit();
+        burstAtLetter(letterIx, 0x8cffb4);
+
+        letterIx++;
+        setTimeout(() => {
+            if (state !== 'letter-lit') return;
+            if (letterIx < word().length) nextTraceStep();
+            else openUnderline();
+        }, 650);
+    }
+
+    // ==================== UNDERLINE THE WORD ====================
+    let underDown = false, underMinX = null, underMaxX = null, underStartX = 0;
+
+    async function openUnderline() {
+        const my = session;
+        state = 'underline';
+        scene.underlineT = 0;
+        // position the swipe zone over the clasp word in the scene
+        placeUnderTrack();
+        $underLine.style.width = '0px';
+        $underTrack.classList.add('visible');
+
+        const line = support() === 2
+            ? 'Every letter is loosened! Now underline the whole word — swipe beneath it, left to right.'
+            : support() === 1
+            ? 'Now underline the word.'
+            : 'Underline it.';
+        await speak(line, line);
+        if (my !== session) return;
+    }
+
+    function underPoint(e) {
+        const rect = $underTrack.getBoundingClientRect();
+        return { x: e.clientX - rect.left, w: rect.width };
+    }
+    $underTrack.addEventListener('pointerdown', e => {
+        if (state !== 'underline') return;
+        e.preventDefault(); e.stopPropagation();
+        try { $underTrack.setPointerCapture(e.pointerId); } catch (err) {}
+        underDown = true;
+        const p = underPoint(e);
+        underStartX = underMinX = underMaxX = p.x;
+    }, { passive: false });
+    $underTrack.addEventListener('pointermove', e => {
+        if (!underDown || state !== 'underline') return;
+        e.preventDefault();
+        const p = underPoint(e);
+        underMinX = Math.min(underMinX, p.x);
+        underMaxX = Math.max(underMaxX, p.x);
+        // golden line follows the finger; the scene word mirrors it
+        $underLine.style.left = underMinX + 'px';
+        $underLine.style.width = Math.max(0, underMaxX - underMinX) + 'px';
+        scene.underlineT = Math.min(1, (underMaxX - underMinX) / (p.w * 0.9));
+    }, { passive: false });
+    $underTrack.addEventListener('pointerup', e => {
+        if (!underDown || state !== 'underline') return;
+        underDown = false;
+        const rect = $underTrack.getBoundingClientRect();
+        const covered = (underMaxX - underMinX) / rect.width;
+        if (covered >= 0.6) {
+            playUnderline();
+            scene.underlineT = 1;
+            $underTrack.classList.remove('visible');
+            openReadWord();
+        } else {
+            // not enough of the word — the line fades, mentor re-offers
+            scene.underlineT = 0;
+            $underLine.style.width = '0px';
+            playSoftFail();
+            speak('Sweep all the way under the word, left to right.',
+                  'Sweep all the way under the word, left to right.');
+        }
+    }, { passive: false });
+    $underTrack.addEventListener('pointercancel', () => { underDown = false; }, { passive: false });
+
+    // ==================== READ THE WHOLE WORD ALOUD ====================
+    async function openReadWord() {
+        const my = session;
+        state = 'read';
+        const w = word();
+        $voiceHead.textContent = 'Read the word';
+        $voiceGlyph.textContent = w;
+        $voiceGlyph.className = 'word';
+        $voiceHint.textContent = 'Read it out loud';
+        $voicePanel.classList.add('visible');
+
+        const line = support() === 2
+            ? 'The clasp trembles! Read the whole word aloud, and its magic will let go.'
+            : support() === 1
+            ? 'Now read the word aloud.'
+            : 'Read it.';
+        await speak(line, line);
+        if (my !== session || state !== 'read') return;
+
+        startListening(
+            heard => matchesWord(heard, w),
+            () => wordRead(),
+            () => sayMiss('So close — read the word on the clasp.')
+        );
+    }
+
+    async function wordRead() {
+        if (state !== 'read') return;
+        const my = session;
+        state = 'dissipate';
+        stopListening();
+        $voicePanel.classList.remove('visible');
+        hideCaption();
+
+        // THE DISPEL: the clasp's magic has no hold — letters scatter to smoke
+        playDissipate();
+        for (let i = 0; i < word().length; i++) {
+            smokeAtLetter(i);
+            burstAtLetter(i, 0xc8ffd9);
+            await sleep(110);
+            if (my !== session) return;
+        }
+        scene.claspAlpha = 0;
+        scene.claspWord = '';
+        await sleep(400);
+        if (my !== session) return;
+
+        // the door swings open onto warm light
+        playDoorOpen();
+        for (let t = 0; t <= 1.001; t += 0.02) {
+            scene.doorOpen = t*t*(3-2*t);
+            await sleep(16);
+            if (my !== session) return;
+        }
+        wordsFreed.push(word());
+
+        const praise = [
+            `${word()}. The clasp is dispelled. You unwrote my spell, letter by letter!`,
+            `${word()}. Undone! The letters could not hold you.`,
+            `${word()}. Dispelled — no seal can stand against a mage who can spell.`,
+        ][roundIx];
+        await speak(praise, `<span class="mentor">Mentor:</span> “${praise}”`);
+        if (my !== session) return;
+        await sleep(600);
+
+        if (roundIx + 1 < ROUNDS.length) {
+            startRound(roundIx + 1);
+        } else {
+            finishGame();
+        }
+    }
+
+    // "I said it" — the loop must never be blocked by a missing mic
+    $saidBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        if (state === 'say') letterSaid();
+        else if (state === 'read') wordRead();
+    });
+
+    // ==================== END ====================
+    function finishGame() {
+        state = 'end';
+        stopListening();
+        hideCaption();
+        $replay.classList.remove('visible');
+        $pips.style.display = 'none';
+        $endWords.innerHTML = wordsFreed.map(w => `<span>${w}</span>`).join('');
+        $end.classList.add('visible');
+        speak('Every clasp undone. You are a true dispeller of words, young mage.', null);
+    }
+
+    function resetAll() {
+        session++;
+        stopListening();
+        try { speechSynthesis.cancel(); } catch (e) {}
+        state = 'title';
+        roundIx = 0; letterIx = 0; litCount = 0;
+        wordsFreed = [];
+        scene.doorOpen = 0; scene.claspAlpha = 0; scene.claspWord = '';
+        scene.litLetters = 0; scene.underlineT = 0; scene.airWord = []; scene.airLetter = null;
+        clearEffects();
+        hideCaption();
+        $slatePanel.classList.remove('visible');
+        $voicePanel.classList.remove('visible');
+        $underTrack.classList.remove('visible');
+        $end.classList.remove('visible');
+        $title.classList.add('visible');
+    }
+
+    // ==================== INPUT / BOOT ====================
+    async function beginSession() {
+        session++;
+        await initAudio();
+        // Warm up speech synthesis inside the user gesture (required on iOS)
+        if ('speechSynthesis' in window) {
+            try { const u = new SpeechSynthesisUtterance(''); speechSynthesis.speak(u); } catch (e) {}
+        }
+        $title.classList.remove('visible');
+        $end.classList.remove('visible');
+        $replay.classList.add('visible');
+        $pips.style.display = 'flex';
+        wordsFreed = [];
+        scene.doorOpen = 0;
+        updatePips();
+        runDemo();
+    }
+
+    document.addEventListener('pointerdown', e => {
+        if (state === 'title') { beginSession(); return; }
+        if (state === 'end') { resetAll(); beginSession(); return; }
+    });
+
+    updateLayout();
+    update();
+    </script>
+</body>
+</html>
