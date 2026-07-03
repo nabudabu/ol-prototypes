@@ -1509,7 +1509,7 @@
     // The mentor conjures CLASP letter-by-letter — air-drawing each shape while
     // its NAME is spoken — then flips the word out to seal the door.
     async function runDemo() {
-        const my = session;
+        const my = ++session;   // claim the session: any older in-flight demo bails
         state = 'demo';
         scene.claspWord = '';
         scene.claspAlpha = 0;
@@ -2090,8 +2090,10 @@
     }
 
     document.addEventListener('pointerdown', e => {
-        if (state === 'title') { beginSession(); return; }
-        if (state === 'end') { resetAll(); beginSession(); return; }
+        // leave 'title'/'end' SYNCHRONOUSLY — beginSession awaits audio init,
+        // and a second tap in that gap would launch a second, parallel demo
+        if (state === 'title') { state = 'starting'; beginSession(); return; }
+        if (state === 'end') { resetAll(); state = 'starting'; beginSession(); return; }
     });
 
     updateLayout();
